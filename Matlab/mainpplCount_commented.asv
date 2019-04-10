@@ -8,8 +8,7 @@ clear, clc
 
 % Scene Run choice: {'GUI_Setup' | 'Prgm_2box' | 'Prgm_MaxFOV','My_Scene'};
 sceneRun = 'NotGUI_Setup';
-loadCfg = 1;
-
+loadCfg 
 %% Serial setup
 if (~strcmp(sceneRun,'GUI_Setup'))
     %Configure data UART port with input buffer to hold 100+ frames
