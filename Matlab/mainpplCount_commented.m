@@ -8,17 +8,35 @@ clear, clc
 
 % Scene Run choice: {'GUI_Setup' | 'Prgm_2box' | 'Prgm_MaxFOV','My_Scene'};
 sceneRun = 'NotGUI_Setup';
-loadCfg = 1;
+% loadCfg = 1;
+%
+% [strPorts numPorts] = get_com_ports();
 
+if (~strcmp(sceneRun,'GUI_Setup'))
+    %%%%% EDIT COM PORTS %%%%%%
+    controlSerialPort = 4;
+    dataSerialPort = 3;
+    loadCfg = 1;
+end
+
+fig1 = figure();
 %% Serial setup
 if (~strcmp(sceneRun,'GUI_Setup'))
     %Configure data UART port with input buffer to hold 100+ frames
     hDataSerialPort = configureDataSport(dataSerialPort, 65536);
+    %configure control port
+    hControlSerialPort = configureControlPort(controlSerialPort);
+    disp('COM STATUS: Ports connected');
+    
+    %Read Chirp Configuration file
+    configurationFileName = 'mmw_pplcount_demo_default.cfg';
+    cliCfg = readCfg(configurationFileName);
+    Params = parseCfg(cliCfg);
     
     %Send Configuration Parameters to IWR16xx
     if(loadCfg)
         mmwDemoCliPrompt = char('mmwDemo:/>');
-        hControlSerialPort = configureControlPort(controlSerialPort);
+        
         %Send CLI configuration to IWR16xx
         fprintf('Sending configuration from %s file to IWR16xx ...\n', configurationFileName);
         for k=1:length(cliCfg)
@@ -26,10 +44,12 @@ if (~strcmp(sceneRun,'GUI_Setup'))
             fprintf('%s\n', cliCfg{k});
             echo = fgetl(hControlSerialPort); % Get an echo of a command
             done = fgetl(hControlSerialPort); % Get "Done"
+            disp(done);
             prompt = fread(hControlSerialPort, size(mmwDemoCliPrompt,2)); % Get the prompt back
         end
         fclose(hControlSerialPort);
         delete(hControlSerialPort);
+        clear hControlSerialPort;
     end
 end
 
@@ -39,7 +59,6 @@ colors='brgcm';
 labelTrack = 0;
 
 %sensor parameters
-%sensor.rangeMax = 6;
 sensor.rangeMax = Params.dataPath.numRangeBins*Params.dataPath.rangeIdxToMeters; %Params come from setup.m
 sensor.rangeMin = 1;
 sensor.azimuthFoV = 120*pi/180; %120 degree FOV in horizontal direction
@@ -132,6 +151,7 @@ while(isvalid(hDataSerialPort))
         %% checks if we have a valid frame header
         frameStart = tic; %framestart= start of stopwatch
         fHist(frameNum).timestamp = frameStart; %stores the start time in the frame packet data variable (fhist) in the franeNum elemenet under the attribute of time stamp
+        
         bytesAvailable = get(hDataSerialPort,'BytesAvailable'); %Extracts how many bytes are in the serial port object 'hDataserialport"
         if(bytesAvailable > maxBytesAvailable) % stores the max the highest bytes available @@@@
             maxBytesAvailable = bytesAvailable;
@@ -189,6 +209,7 @@ while(isvalid(hDataSerialPort))
         
         if(dataLength > 0) %If there is valid data in the packet
             %Read all packet
+            
             [rxData, byteCount] = fread(hDataSerialPort, double(dataLength), 'uint8'); %read the rest of the packet
             if(byteCount ~= double(dataLength)) %if the number of bytes read from above is not equal to the preset data length then something is wrong
                 reason = 'Data Size is wrong';
@@ -311,170 +332,115 @@ while(isvalid(hDataSerialPort))
         % Plot pointCloud
         fHist(frameNum).benchmarks(2) = 1000*toc(frameStart); %bench timing feature
         
-        if(size(posAll,2)) %if positions are avaliable then plot
-            % Plot all points
-            if(snrAll*10 > 0) %if snr is within reasonable limits
-                if(~optimize)
-                    %note that trackingAx are axes
-                    hPlotCloudHandleAll = scatter(trackingAx, posAll(1,:), posAll(2,:),'.k','SizeData',snrAll*10); %plot the actual points within the valid snr limit
-                else
-                    %note that trackingAx are axes
-                    hPlotCloudHandleAll = plot(trackingAx, posAll(1,:), posAll(2,:),'.k'); %plots the actual points after optimisation
-                end
-            else %you are lost because the SNR value is incorrect
-                reason = 'SNR value is wrong';
-                lostSync = 1;
-                break;
-            end
-            % Cross out out-of-Range
-            if(~optimize)
-                hPlotCloudHandleOutRange = plot(trackingAx, posAll(1,~inRangeInd), posAll(2,~inRangeInd), 'xr');
-            end
+        fHist(frameNum).done = 1000*toc(frameStart); %benchmark timing
+        
+        %time to read the next frame
+        frameNum = frameNum + 1;
+        frameNumLogged = frameNumLogged + 1;
+        if(frameNum > 10000)
+            frameNum = 1;
         end
         
-        %{
-        if(size(posInRange,2))
-            % Cross out Clutter
-            hPlotCloudHandleClutter = plot(trackingAx, posInRange(1,clutterInd), posInRange(2,clutterInd), 'xk');
-            % Indicate Static
-            hPlotCloudHandleStatic = plot(trackingAx, posInRange(1,staticInd & ~clutterInd), posInRange(2,staticInd & ~clutterInd), 'ok');
-            % Indicate Dynamic
-            hPlotCloudHandleDynamic = plot(trackingAx, posInRange(1,~staticInd), posInRange(2,~staticInd), 'ob');
-        end
-        %}
-        fHist(frameNum).benchmarks(3) = 1000*toc(frameStart); %benchmark timing
+        %create a matrix that contains the x,y points and the doppler data
+        point3D = [posAll; pointCloud(3,:)];
         
-        switch trackerRun
-            case 'Target'
-                %if no targets, resets target TLV data
-                if(numTargets == 0)
-                    TID = zeros(1,0);
-                    S = zeros(6,0);
-                    EC = zeros(9,0);
-                    G = zeros(1,0);
-                end
+        %check if system is running slowly
+        if(bytesAvailable > 32000)
+            runningSlow  = 1;
+        elseif(bytesAvailable < 1000)
+            runningSlow = 0;
         end
         
-        fHist(frameNum).benchmarks(4) = 1000*toc(frameStart); %benchmark timing
-        
-        if nnz(isnan(S)) %counts the number of NaNs within the kinematic data matrix
-            %if NaNs are detected you are lost
-            reason = 'Error: S contains NaNs';
-            lostSync = 1;
-            break;
-        end
-        %counts number of NaN's within the error covariance matrix
-        if nnz(isnan(EC))
-            reason = 'Error: EC contains NaNs'; %if NaN's are found you are lost
-            lostSync = 1;
-            break;
+        if(runningSlow)
+            % Don't pause, we are slow
+        else
+            pause(0.01);
         end
         
-        tNumC = length(TID); %returns the number of targets
-        peopleCountTotal = tNumC; %total people count is equal to the number of target IDs
-        peopleCountInBox = zeros(1, scene.numberOfTargetBoxes);
-        
-        if(size(mIndex,1)) %if the size returns as 1 (ie mIndex has 1 row)
-            mIndex = mIndex + 1; %add 1 to all indices
-        end
-        
-        for n=1:tNumC
-            
-            tid = TID(n)+1; %increment target ID to ensure indices line up correctly
-            if(tid > maxNumTracks) %if you get more than 20 target IDs (people detected) then you're lost
-                reason = 'Error: TID is wrong';
-                lostSync = 1;
-                break;
-            end
-            
-            %g = G(n);
-            centroid = computeH(1, S(:,n)); %S(:,n) creates a coloumn vector of target kinematic information, while 1 is just an unused input
-            ec = reshape(EC(:,n),3,3); %reshape the raw EC into a 3 by 3 covariance matrix
-            %if the entire covariance matrix has more than 1 nonzero
-            %element (its a valid covariance matrix)
-            if(nnz(ec)>1)
-                
-                dim = getDim(gatingAx, 1, centroid, ec); %largest error component calculation from the error covariance which then gets the x,y,z covariance ellipse bubble
-                centreInformation = updateCenter(S(1,n), S(2,n),dim); %line kept by Hasnain to ensure this function is used during writing phase
-                
-            end
-            
-            
-            [xG, yG, zG, vG] = gatePlot3(gatingAx, g, centroid, ec);%outputs x,y,z of the rotated covariance ellipse, kept for knowledge of function use
-            
-            
-        end
+       %plot 
+       if (~isempty(pointCloud))
+           xPointCloud = pointCloudInRange(1:end-1);
+           yPointCloud = pointCloudInRange(2:end);
+           scatter(xPointCloud, yPointCloud);
+       end
+       
+       
     end
     
     
-    fHist(frameNum).done = 1000*toc(frameStart); %benchmark timing
     
-    %kept for knowledge
-    string{1} = sprintf('Frame #: %d', targetFrameNum);
-    string{2} = sprintf('Detection Points: %d', numOutputPoints);
-    string{3} = sprintf('People Count: %d', peopleCountTotal);
-    
-    %time to read the next frame
-    frameNum = frameNum + 1;
-    frameNumLogged = frameNumLogged + 1;
-    if(frameNum > 10000)
-        frameNum = 1;
-    end
-    
-    %create a matrix that contains the x,y points and the doppler data
-    point3D = [posAll; pointCloud(3,:)];
-    
-    %check if system is running slowly
-    if(bytesAvailable > 32000)
-        runningSlow  = 1;
-    elseif(bytesAvailable < 1000)
-        runningSlow = 0;
-    end
-    
-    if(runningSlow)
-        % Don't pause, we are slow
+    if(targetFrameNum)
+        lostSyncTime = tic;
+        bytesAvailable = get(hDataSerialPort,'BytesAvailable');
+        disp(['Lost sync at frame ', num2str(targetFrameNum),'(', num2str(frameNum), '), Reason: ', reason, ', ', num2str(bytesAvailable), ' bytes in Rx buffer']);
     else
-        pause(0.01);
+        errordlg('Port sync error: Please close and restart program');
     end
-end
-
-if(targetFrameNum)
-    lostSyncTime = tic;
-    bytesAvailable = get(hDataSerialPort,'BytesAvailable');
-    disp(['Lost sync at frame ', num2str(targetFrameNum),'(', num2str(frameNum), '), Reason: ', reason, ', ', num2str(bytesAvailable), ' bytes in Rx buffer']);
-else
-    errordlg('Port sync error: Please close and restart program');
-end
-%{
+    %{
     % To catch up, we read and discard all uart data
     bytesAvailable = get(hDataSerialPort,'BytesAvailable');
     disp(bytesAvailable);
     [rxDataDebug, byteCountDebug] = fread(hDataSerialPort, bytesAvailable, 'uint8');
-%}
-while(lostSync) %Waits till it finds the first pattern of numbers and therefore is no longer lost
-    for n=1:8 %Checks if the digits read match the frame header
-        [rxByte, byteCount] = fread(hDataSerialPort, 1, 'uint8');
-        if(rxByte ~= syncPatternUINT8(n))
-            outOfSyncBytes = outOfSyncBytes + 1; %Keeps track of out of sync @@@@@
-            break;
+    %}
+    while(lostSync) %Waits till it finds the first pattern of numbers and therefore is no longer lost
+        for n=1:8 %Checks if the digits read match the frame header
+            
+            [rxByte, byteCount] = fread(hDataSerialPort, 1, 'uint8');
+            if(rxByte ~= syncPatternUINT8(n))
+                outOfSyncBytes = outOfSyncBytes + 1; %Keeps track of out of sync @@@@@
+                break;
+            end
+        end
+        if(n == 8)
+            lostSync = 0; %if it has found the first pattern/magic number, then no longer lost
+            frameNum = frameNum + 1; %moves the framepacket indexer to the next (bytes)
+            if(frameNum > 10000) %Resets frame index if it has reached the end of the frame data file
+                frameNum = 1;
+            end
+            
+            [header, byteCount] = fread(hDataSerialPort, frameHeaderLengthInBytes - 8, 'uint8');
+            rxHeader = [syncPatternUINT8'; header];
+            byteCount = byteCount + 8;
+            gotHeader = 1;
         end
     end
-    if(n == 8)
-        lostSync = 0; %if it has found the first pattern/magic number, then no longer lost
-        frameNum = frameNum + 1; %moves the framepacket indexer to the next (bytes)
-        if(frameNum > 10000) %Resets frame index if it has reached the end of the frame data file
-            frameNum = 1;
-        end
-        
-        [header, byteCount] = fread(hDataSerialPort, frameHeaderLengthInBytes - 8, 'uint8');
-        rxHeader = [syncPatternUINT8'; header];
-        byteCount = byteCount + 8;
-        gotHeader = 1;
-    end
+    
 end
 
 
 %% Helper functions
+
+function [strPorts numPorts] = get_com_ports()
+
+command = 'wmic path win32_pnpentity get caption /format:list | find "COM"';
+[status, cmdout] = system (command);
+UART_COM = regexp(cmdout, 'UART\s+\(COM[0-9]+', 'match');
+UART_COM = (regexp(UART_COM, 'COM[0-9]+', 'match'));
+DATA_COM = regexp(cmdout, 'Data\s+Port\s+\(COM[0-9]+', 'match');
+DATA_COM = (regexp(DATA_COM, 'COM[0-9]+', 'match'));
+
+n = length(UART_COM);
+if (n==0)
+    errordlg('Error: No Device Detected')
+    return
+else
+    CLI_PORT = zeros(n,1);
+    S_PORT = zeros(n,1);
+    strPorts = {};
+    for i=1:n
+        temp = cell2mat(UART_COM{1,i});
+        strPorts{i,1} = temp;
+        CLI_PORT(i,1) = str2num(temp(4:end));
+        temp = cell2mat(DATA_COM{1,i});
+        strPorts{i,2} = temp;
+        S_PORT(i,1) = str2num(temp(4:end));
+    end
+    
+    CLI_PORT = sort(CLI_PORT);
+    S_PORT = sort(S_PORT);
+    numPorts = [CLI_PORT, S_PORT];
+end
+end
 
 %Display Chirp parameters in table on screen
 function h = displayChirpParams(Params, Position, hFig)
