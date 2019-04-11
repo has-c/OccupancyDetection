@@ -22,6 +22,7 @@ end
 fig1 = figure();
 fig2 = figure();
 
+
 %% Serial setup
 if (~strcmp(sceneRun,'GUI_Setup'))
     %Configure data UART port with input buffer to hold 100+ frames
@@ -351,30 +352,29 @@ while(isvalid(hDataSerialPort))
             pause(0.01);
         end
         
-       %plot raw point cloud positions and targets
-       if (~isempty(pointCloud) && ~isempty(S))
-           xPos = posInRange(1,:); 
+       %plot raw point cloud positions
+       if (~isempty(pointCloud))
+           xPos = posInRange(1,:); %weird index matching issue
            yPos = posInRange(2,:);
-           xTar = S(1,:);
-           yTar = S(2,:);
-           
            figure(fig1);
-           subplot(2,1,1);
            scatter(xPos, yPos);
            xlim([-6 6]);
            ylim([0 6]);
+           title('Positions from Point Cloud');
            xlabel('x Position');
-           ylabel('y Position'); 
-           
-           subplot(2,1,2);
-           scatter(xTar,yTar,'xr');
-           xlim([-6 6]);
-           ylim([0 6]);
-           xlabel('x Position');
-           ylabel('y Position'); 
-           
+           ylabel('y Position');
        end
-
+       
+       if (~isempty(S))
+           xTar = S(1,:);
+           yTar = S(2,:);
+           figure(fig2);
+           scatter(xTar,yTar,'xr')
+           title('Target Positions');
+           xla
+       
+      
+       
     end
     
     if(targetFrameNum)
