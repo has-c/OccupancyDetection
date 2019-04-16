@@ -26,7 +26,7 @@ rawPDataSave= {};
 posAllDataSave = {};
 posDataSave = {};
 pointCloudDataSave = {};
-frameHeaderSave = {};
+rawframeHeaderSave = {};
 
 %% Serial setup
 if (~strcmp(sceneRun,'GUI_Setup'))
@@ -167,7 +167,9 @@ while(isvalid(hDataSerialPort))
         if(gotHeader == 0) %ensures that the frame header is read first
             %Read the header first
             [rxHeader, byteCount] = fread(hDataSerialPort, frameHeaderLengthInBytes, 'uint8'); %fread reads the hdatasearialport object for the frameheader bytes into an array rxHeader
+            rawframeHeaderSave{end+1} = rxHeader;
         end
+        
         fHist(frameNum).start = 1000*toc(frameStart); % toc -stops and outputs delayed time; puts time in millseconds
         
         magicBytes = typecast(uint8(rxHeader(1:8)), 'uint64'); %Stores the first 8 numbers or the right patern
@@ -188,7 +190,7 @@ while(isvalid(hDataSerialPort))
         end
         
         frameHeader = readToStruct(frameHeaderStructType, rxHeader); %reads the raw rx header data into the frame header using the frameHeaderStructType properties
-        frameHeaderSave{end+1} = frameHeader;
+        
         %getting in sync again
         if(gotHeader == 1)
             if(frameHeader.frameNumber > targetFrameNum)
