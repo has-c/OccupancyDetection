@@ -26,6 +26,7 @@ rawPDataSave= {};
 posAllDataSave = {};
 posDataSave = {};
 pointCloudDataSave = {};
+frameHeaderSave = {};
 
 %% Serial setup
 if (~strcmp(sceneRun,'GUI_Setup'))
@@ -187,6 +188,7 @@ while(isvalid(hDataSerialPort))
         end
         
         frameHeader = readToStruct(frameHeaderStructType, rxHeader); %reads the raw rx header data into the frame header using the frameHeaderStructType properties
+        frameHeaderSave{end+1} = frameHeader;
         %getting in sync again
         if(gotHeader == 1)
             if(frameHeader.frameNumber > targetFrameNum)
