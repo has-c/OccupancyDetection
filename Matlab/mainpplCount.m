@@ -20,7 +20,12 @@ if (~strcmp(sceneRun,'GUI_Setup'))
 end
 
 fig1 = figure();
-fig2 = figure();
+
+
+rawPDataSave= {};
+posAllDataSave = {};
+posDataSave = {};
+pointCloudDataSave = {};
 
 %% Serial setup
 if (~strcmp(sceneRun,'GUI_Setup'))
@@ -243,8 +248,9 @@ while(isvalid(hDataSerialPort))
                         if(numInputPoints > 0) %actually have some points to parse
                             % Get Point Cloud from the sensor
                             p = typecast(uint8(rxData(offset+1: offset+valueLength)),'single'); %get all avaliable point cloud data from the sensor
-                            
+                            rawPDataSave{end+1} = p;
                             pointCloud = reshape(p,4, numInputPoints); %form point cloud, resultant matrix is 4 x numInputPoints in size
+                            pointCloudDataSave{end+1} = pointCloud;
                             %row 1 = raw magnitude data (range data)
                             %row 2 = raw angle data (azimuth data)
                             %row 3 = raw doppler data
@@ -254,6 +260,8 @@ while(isvalid(hDataSerialPort))
                             %posAll 2nd row = Rcos(theta)
                             posAll = [pointCloud(1,:).*sin(pointCloud(2,:)); pointCloud(1,:).*cos(pointCloud(2,:))]; %calculate y(row 1) x(row 2) positions => resultant matrix is 2 by numInputPoints in size
                             snrAll = pointCloud(4,:); %extract the signal to noise ratio from the point cloud
+                            posAllDataSave{end+1} = posAll;
+
                             
                             % Remove out of Range, Behind the Walls, out of field of view (FOV) points
                             %find index of point cloud that is within the
@@ -263,7 +271,7 @@ while(isvalid(hDataSerialPort))
                             
                             pointCloudInRange = pointCloud(:,inRangeInd); %extract portion of the point cloud that is within the sensor limits
                             posInRange = posAll(:,inRangeInd); %extract positions (x,y) that are within the sensor limits
-
+                            posDataSave{end+1} = posInRange;
                             numOutputPoints = size(pointCloud,2); % output number of coloumns in the point cloud
                         end
                         offset = offset + valueLength; %updates offset
@@ -349,12 +357,12 @@ while(isvalid(hDataSerialPort))
             % Don't pause, we are slow
         else
             pause(0.01);
-        end
+         end
         
        %plot raw point cloud positions and targets
        if (~isempty(pointCloud) && ~isempty(S))
-           xPos = posInRange(1,:); 
-           yPos = posInRange(2,:);
+           xPos = posAll(1,:); 
+           yPos = posAll(2,:);
            xTar = S(1,:);
            yTar = S(2,:);
            
