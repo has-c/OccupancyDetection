@@ -106,84 +106,82 @@ def main():
     app = QtGui.QApplication([])
 
     # Set the plot 
-    # pg.setConfigOption('background','w')
-    # win = pg.GraphicsWindow(title="2D scatter plot")
-    # p = win.addPlot()
-    # p.setXRange(-6,6)
-    # p.setYRange(0,6)
-    # p.setLabel('left',text = 'Y position (m)')
-    # p.setLabel('bottom', text= 'X position (m)')
-    # s = p.plot([],[],pen=None,symbol='o')
+    pg.setConfigOption('background','w')
+    win = pg.GraphicsWindow(title="2D scatter plot")
+    p = win.addPlot()
+    p.setXRange(-6,6)
+    p.setYRange(0,6)
+    p.setLabel('left',text = 'Y position (m)')
+    p.setLabel('bottom', text= 'X position (m)')
+    s = p.plot([],[],pen=None,symbol='o')
 
         #read and parse data
     while Dataport.is_open:
-
+    #     print('In first while')
         while (not(lostSync) and Dataport.is_open):
             #check for a valid frame header
             if not(gotHeader):
-
+    #             print('In second while')
                 #in_waiting = amount of bytes in the buffer
                 rawRecieveHeader = Dataport.read(frameHeaderLength)
+    #             print('after raw header recieved')
                 recieveHeader = np.frombuffer(rawRecieveHeader, dtype = 'uint8')
+    #             print(recieveHeader)
 
-        #magic byte check
-        if not(np.array_equal(recieveHeader[0:8],magicBytes)):
-            print('NO SYNC PATTERN')
-            lostSync = True
-            break
-
-        #valid the checksum
-        CS = validateChecksum(recieveHeader)
-        if (CS != 0):
-            print('HEADER CHECKSUM IS WRONG')
-            lostSync = True
-            break
-
-        print('IN')
-        
-        #have a valid frame header
-        headerContent = readHeader(recieveHeader)
-
-        if (gotHeader):
-            if headerContent['frameNumber'] > targetFrameNumber:
-                targetFrameNumber = headerContent['frameNumber']
-                gotHeader = False
-                print('FOUND SYNC AT FRAME NUMBER ' + str(targetFrameNumber))
-            else:
-                print('OLD FRAME')
-                gotHeader = False
+            #magic byte check
+            if not(np.array_equal(recieveHeader[0:8],magicBytes)):
+                print('NO SYNC PATTERN')
                 lostSync = True
                 break
 
-        dataLength = int(headerContent['packetLength'] - frameHeaderLength)
-        if dataLength > 0:
-            #read the rest of the packet
-            rawData = Dataport.read(dataLength)
-            data = np.frombuffer(rawData, dtype = 'uint8')
-            pointCloud = tlvParsing(data, dataLength, tlvHeaderLengthInBytes, pointLengthInBytes)
-            
-            if not(pointCloud is None):
-                #constrain point cloud to within the effective sensor range
-                #range 1 < x < 6
-                #azimuth -50 deg to 50 deg
-                #check whether corresponding range and azimuth data are within the constraints
+            #valid the checksum
+            CS = validateChecksum(recieveHeader)
+            if (CS != 0):
+                print('HEADER CHECKSUM IS WRONG')
+                lostSync = True
+                break
 
-                effectivePointCloud = np.array([])
-                for index in range(0, len(pointCloud[0,:])):
-                    if (pointCloud[0,index] > 1 and pointCloud[0,index] < 6) and (pointCloud[1, index] > -50*np.pi/180 and pointCloud[1, index] < 50*np.pi/180):
-                        #concatenate columns to the new point cloud
-                        if len(effectivePointCloud) == 0:
-                            effectivePointCloud = np.reshape(pointCloud[:, index], (4,1), order="F")
-                        else:
-                            point = np.reshape(pointCloud[:, index], (4,1),order="F")
-                            effectivePointCloud = np.hstack((effectivePointCloud, point))
+            #have a valid frame header
+            headerContent = readHeader(recieveHeader)
 
-                if len(effectivePointCloud) != 0:
-                    posX = np.multiply(effectivePointCloud[0,:], np.sin(effectivePointCloud[1,:]))
-                    posY = np.multiply(effectivePointCloud[0,:], np.cos(effectivePointCloud[1,:]))
-                    # s.setData(posX,posY)
-                    # QtGui.QApplication.processEvents()
+            if (gotHeader):
+                if headerContent['frameNumber'] > targetFrameNumber:
+                    targetFrameNumber = headerContent['frameNumber']
+                    gotHeader = False
+                    print('FOUND SYNC AT FRAME NUMBER ' + str(targetFrameNumber))
+                else:
+                    print('OLD FRAME')
+                    gotHeader = False
+                    lostSync = True
+                    break
 
+            dataLength = int(headerContent['packetLength'] - frameHeaderLength)
+            if dataLength > 0:
+                #read the rest of the packet
+                rawData = Dataport.read(dataLength)
+                data = np.frombuffer(rawData, dtype = 'uint8')
+                pointCloud = tlvParsing(data, dataLength, tlvHeaderLengthInBytes, pointLengthInBytes)
+                if not(pointCloud is None):
+                    #constrain point cloud to within the effective sensor range
+                    #range 1 < x < 6
+                    #azimuth -50 deg to 50 deg
+                    #check whether corresponding range and azimuth data are within the constraints
+
+                    effectivePointCloud = np.array([])
+                    for index in range(0, len(pointCloud[0,:])):
+                        if (pointCloud[0,index] > 1 and pointCloud[0,index] < 6) and (pointCloud[1, index] > -50*np.pi/180 and pointCloud[1, index] < 50*np.pi/180):
+                            #concatenate columns to the new point cloud
+                            if len(effectivePointCloud) == 0:
+                                effectivePointCloud = np.reshape(pointCloud[:, index], (4,1), order="F")
+                            else:
+                                point = np.reshape(pointCloud[:, index], (4,1),order="F")
+                                effectivePointCloud = np.hstack((effectivePointCloud, point))
+
+                    if len(effectivePointCloud) != 0:
+                        posX = np.multiply(effectivePointCloud[0,:], np.sin(effectivePointCloud[1,:]))
+                        posY = np.multiply(effectivePointCloud[0,:], np.cos(effectivePointCloud[1,:]))
+                        s.setData(posX,posY)
+                        QtGui.QApplication.processEvents()
 
 main()
 
