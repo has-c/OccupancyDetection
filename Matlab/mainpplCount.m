@@ -168,7 +168,7 @@ while(isvalid(hDataSerialPort))
         if(gotHeader == 0) %ensures that the frame header is read first
             %Read the header first
             [rxHeader, byteCount] = fread(hDataSerialPort, frameHeaderLengthInBytes, 'uint8'); %fread reads the hdatasearialport object for the frameheader bytes into an array rxHeader
-            rawframeHeader{end+1} = rxHeader;
+%             rawframeHeader{end+1} = rxHeader;
         end
         
         fHist(frameNum).start = 1000*toc(frameStart); % toc -stops and outputs delayed time; puts time in millseconds
@@ -222,7 +222,7 @@ while(isvalid(hDataSerialPort))
             %Read all packet
             
             [rxData, byteCount] = fread(hDataSerialPort, double(dataLength), 'uint8'); %read the rest of the packet
-            tlvData{end+1} = rxData;
+%             tlvData{end+1} = rxData;
             if(byteCount ~= double(dataLength)) %if the number of bytes read from above is not equal to the preset data length then something is wrong
                 reason = 'Data Size is wrong';
                 lostSync = 1;
@@ -254,19 +254,25 @@ while(isvalid(hDataSerialPort))
                         if(numInputPoints > 0) %actually have some points to parse
                             % Get Point Cloud from the sensor
                             p = typecast(uint8(rxData(offset+1: offset+valueLength)),'single'); %get all avaliable point cloud data from the sensor
-                            rawPData{end+1} = p;
+%                             rawPData{end+1} = p;
                             pointCloud = reshape(p,4, numInputPoints); %form point cloud, resultant matrix is 4 x numInputPoints in size
-                            pointCloudData{end+1} = pointCloud;
+%                             pointCloudData{end+1} = pointCloud;
                             %row 1 = raw magnitude data (range data)
                             %row 2 = raw angle data (azimuth data)
                             %row 3 = raw doppler data
                             %row 4 = raw snr data
                             
+                            staticInd = (pointCloud(3,:) == 0);   
+                            clutterPoints = pointCloud(1:2,staticInd);
+                            clutterInd = ismember(pointCloud(1:2,:)', clutterPoints', 'rows');
+                            clutterInd = clutterInd' & staticInd;
+                            pointCloud = pointCloud(1:3,~clutterInd);
+                            
                             %posAll 1st row = Rsin(theta)
                             %posAll 2nd row = Rcos(theta)
                             posAll = [pointCloud(1,:).*sin(pointCloud(2,:)); pointCloud(1,:).*cos(pointCloud(2,:))]; %calculate y(row 1) x(row 2) positions => resultant matrix is 2 by numInputPoints in size
-                            snrAll = pointCloud(4,:); %extract the signal to noise ratio from the point cloud
-                            posAllData{end+1} = posAll;
+%                             snrAll = pointCloud(4,:); %extract the signal to noise ratio from the point cloud
+%                             posAllData{end+1} = posAll;
 
                             
                             % Remove out of Range, Behind the Walls, out of field of view (FOV) points
@@ -277,7 +283,8 @@ while(isvalid(hDataSerialPort))
                             
                             pointCloudInRange = pointCloud(:,inRangeInd); %extract portion of the point cloud that is within the sensor limits
                             posInRange = posAll(:,inRangeInd); %extract positions (x,y) that are within the sensor limits
-                            posData{end+1} = posInRange;
+%                             posData{end+1} = posInRange;
+
                             numOutputPoints = size(pointCloud,2); % output number of coloumns in the point cloud
                         end
                         offset = offset + valueLength; %updates offset
@@ -386,6 +393,29 @@ while(isvalid(hDataSerialPort))
            ylim([0 6]);
            xlabel('x Position');
            ylabel('y Position'); 
+           
+       else
+           xPos = [];
+           yPos = [];
+           xTar = [];
+           yTar = [];
+           
+           figure(fig1);
+           subplot(2,1,1);
+           scatter(xPos, yPos);
+           xlim([-6 6]);
+           ylim([0 6]);
+           xlabel('x Position');
+           ylabel('y Position');
+           
+           subplot(2,1,2);
+           scatter(xTar,yTar,'xr');
+           xlim([-6 6]);
+           ylim([0 6]);
+           xlabel('x Position');
+           ylabel('y Position');
+           
+           
            
        end
 
