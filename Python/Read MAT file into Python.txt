@@ -1,0 +1,2 @@
+from scipy.io import loadmat
+x = loadmat('C:\\Users\\hasna\\Documents\\GitHub\\OccupancyDetection\\Data\\posData.mat')
