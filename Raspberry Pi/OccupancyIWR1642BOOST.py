@@ -162,7 +162,7 @@ def main():
     temp.setXRange(-6,6)
     temp.setYRange(0,6)
     temp.setLabel('left',text = 'Y position (m)')
-    temp.setLabel('bottom', text= 'X position (m)')    
+    temp.setLabel('bottom', text= 'X position (m)')
     s1 = p.plot([],[],pen=None,symbol='o') #point cloud
     s2 = t.plot([],[],pen=None,symbol='x') #target
     s3 = temp.plot([],[],pen=None,symbol='o') #temporary data
@@ -275,10 +275,12 @@ def main():
                                     
                             if len(xy) == 0:
                                 s3.setData([],[])
-                                QtGui.QApplication.processEvents() 
+                                QtGui.QApplication.processEvents()
+                                print('PEOPLE COUNT: 0')
                             else:
                                 s3.setData(xy[:, 0],xy[:, 1])
-                                QtGui.QApplication.processEvents() 
+                                QtGui.QApplication.processEvents()
+                                print('PEOPLE COUNT: ', str(max(unique_labels)+1))
                                 s1.setData(posX,posY)
                                 QtGui.QApplication.processEvents() 
                             
