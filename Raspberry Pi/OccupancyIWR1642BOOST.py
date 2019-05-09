@@ -1,7 +1,7 @@
 import serial
 import time
 import numpy as np
-
+from sklearn.cluster import DBSCAN
 #pyqtgraph -> fast plotting
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtGui
@@ -37,7 +37,7 @@ def tlvParsing(data, dataLength, tlvHeaderLengthInBytes, pointLengthInBytes, tar
     if (tlvLength + index > dataLength):
         print('TLV SIZE IS WRONG')
         lostSync = True
-        return
+        return pointCloud, targetDict
     
     index += tlvHeaderLengthInBytes
     pointCloudDataLength = tlvLength - tlvHeaderLengthInBytes
@@ -91,9 +91,10 @@ def validateChecksum(recieveHeader):
 
 def main():
     
-    #initialise variables
-    lostSync = False
-
+    #user macros
+    useTargetInfo = False
+    usePointCloud = True
+    
     #valid header variables and constant
     magicBytes = np.array([2,1,4,3,6,5,8,7], dtype= 'uint8')
 
@@ -111,7 +112,10 @@ def main():
     # Change the configuration file name
 
     configFileName = 'mmw_pplcount_demo_default.cfg'
-
+    
+    global lostSync
+    lostSync = False
+    
     global CLIport
     global Dataport
 
@@ -142,9 +146,11 @@ def main():
     # Set the plot 
     pg.setConfigOption('background','w')
     winPointCloud = pg.GraphicsWindow(title="Point Cloud")
+    windowTemp = pg.GraphicsWindow(title="Temporary Visualisation")
     winTarget = pg.GraphicsWindow(title="Target")
     p = winPointCloud.addPlot()
     t = winTarget.addPlot()
+    temp = windowTemp.addPlot()
     p.setXRange(-6,6)
     p.setYRange(0,6)
     p.setLabel('left',text = 'Y position (m)')
@@ -153,8 +159,13 @@ def main():
     t.setYRange(0,6)
     t.setLabel('left',text = 'Y position (m)')
     t.setLabel('bottom', text= 'X position (m)')
-    s1 = p.plot([],[],pen=None,symbol='o')
-    s2 = t.plot([],[],pen=None,symbol='x')
+    temp.setXRange(-6,6)
+    temp.setYRange(0,6)
+    temp.setLabel('left',text = 'Y position (m)')
+    temp.setLabel('bottom', text= 'X position (m)')    
+    s1 = p.plot([],[],pen=None,symbol='o') #point cloud
+    s2 = t.plot([],[],pen=None,symbol='x') #target
+    s3 = temp.plot([],[],pen=None,symbol='o') #temporary data
 
     while Dataport.is_open:
     #     print('In first while')
@@ -205,35 +216,73 @@ def main():
                 pointCloud, targetDict = tlvParsing(data, dataLength, tlvHeaderLengthInBytes, pointLengthInBytes,targetLengthInBytes)
 
                 #target
-                if len(targetDict) != 0:
-                    targetX = targetDict['kinematicData'][0,:]
-                    targetY = targetDict['kinematicData'][1,:]
-                    s2.setData(targetX,targetY)
-                    QtGui.QApplication.processEvents() 
+                if useTargetInfo:
+                    if len(targetDict) != 0:
+                            targetX = targetDict['kinematicData'][0,:]
+                            targetY = targetDict['kinematicData'][1,:]
+                            s2.setData(targetX,targetY)
+                            QtGui.QApplication.processEvents() 
 
                 #pointCloud
-                if not(pointCloud is None):
-                    #constrain point cloud to within the effective sensor range
-                    #range 1 < x < 6
-                    #azimuth -50 deg to 50 deg
-                    #doppler is greater than 0 to remove static objects
-                    #check whether corresponding range and azimuth data are within the constraints
+                if usePointCloud:
+                    if not(pointCloud is None):
+                        #constrain point cloud to within the effective sensor range
+                        #range 1 < x < 6
+                        #azimuth -50 deg to 50 deg
+                        #doppler is greater than 0 to remove static objects
+                        #check whether corresponding range and azimuth data are within the constraints
 
-                    effectivePointCloud = np.array([])
-                    for index in range(0, len(pointCloud[0,:])):
-                        if (pointCloud[0,index] > 1 and pointCloud[0,index] < 6) and (pointCloud[1, index] > -50*np.pi/180 and pointCloud[1, index] < 50*np.pi/180) and pointCloud[3,index] > 0:
-                            #concatenate columns to the new point cloud
-                            if len(effectivePointCloud) == 0:
-                                effectivePointCloud = np.reshape(pointCloud[:, index], (4,1), order="F")
+                        effectivePointCloud = np.array([])
+                        for index in range(0, len(pointCloud[0,:])):
+                            if (pointCloud[0,index] > 1 and pointCloud[0,index] < 6) and (pointCloud[1, index] > -50*np.pi/180 and pointCloud[1, index] < 50*np.pi/180):
+                                #concatenate columns to the new point cloud
+                                if len(effectivePointCloud) == 0:
+                                    effectivePointCloud = np.reshape(pointCloud[:, index], (4,1), order="F")
+                                else:
+                                    point = np.reshape(pointCloud[:, index], (4,1),order="F")
+                                    effectivePointCloud = np.hstack((effectivePointCloud, point))
+
+                        if len(effectivePointCloud) != 0:
+                            posX = np.multiply(effectivePointCloud[0,:], np.sin(effectivePointCloud[1,:]))
+                            posY = np.multiply(effectivePointCloud[0,:], np.cos(effectivePointCloud[1,:]))
+                            
+                            
+                            #create DBSCAN dataset - find a more efficient way to do this
+                            dbscanDataSet = np.array([])
+                            for pointIndex in range(0, len(posX)):
+                                point = np.array([posX[pointIndex], posY[pointIndex]])
+                                if pointIndex == 0:
+                                    dbscanDataSet = [point]
+                                else:
+                                    dbscanDataSet = np.append(dbscanDataSet, [point], axis=0)
+
+                            #run DBSCAN
+                            db = DBSCAN(eps=0.25,metric='euclidean',min_samples=16).fit(dbscanDataSet)
+
+                            core_samples_mask = np.zeros_like(db.labels_, dtype=bool) #return an array of zeros with the same shape as labels
+                            core_samples_mask[db.core_sample_indices_] = True #place true where the index leads to a point which is in a cluster
+                            labels = db.labels_
+                            unique_labels = set(labels)
+                            xy = np.array([])
+                            for label in unique_labels:
+                                if label == -1:
+                                    continue
+                                class_member_mask = (labels == label) #mask all cluster members
+                                if len(xy) == 0:
+                                    xy = dbscanDataSet[class_member_mask & core_samples_mask]
+                                else:    
+                                    xy = np.concatenate((xy, dbscanDataSet[class_member_mask & core_samples_mask]),axis=0)
+                                    
+                            if len(xy) == 0:
+                                s3.setData([],[])
+                                QtGui.QApplication.processEvents() 
                             else:
-                                point = np.reshape(pointCloud[:, index], (4,1),order="F")
-                                effectivePointCloud = np.hstack((effectivePointCloud, point))
-
-                    if len(effectivePointCloud) != 0:
-                        posX = np.multiply(effectivePointCloud[0,:], np.sin(effectivePointCloud[1,:]))
-                        posY = np.multiply(effectivePointCloud[0,:], np.cos(effectivePointCloud[1,:]))
-                        s1.setData(posX,posY)
-                        QtGui.QApplication.processEvents() 
+                                s3.setData(xy[:, 0],xy[:, 1])
+                                QtGui.QApplication.processEvents() 
+                                s1.setData(posX,posY)
+                                QtGui.QApplication.processEvents() 
+                            
+                            
 
 
 
