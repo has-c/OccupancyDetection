@@ -21,13 +21,7 @@ end
 
 fig1 = figure();
 
-
-rawPData= {};
-posAllData = {};
-posData = {};
-pointCloudData = {};
-rawframeHeader = {};
-tlvData = {};
+tlvStream = {};
 
 %% Serial setup
 if (~strcmp(sceneRun,'GUI_Setup'))
@@ -222,7 +216,7 @@ while(isvalid(hDataSerialPort))
             %Read all packet
             
             [rxData, byteCount] = fread(hDataSerialPort, double(dataLength), 'uint8'); %read the rest of the packet
-%             tlvData{end+1} = rxData;
+            tlvStream{end+1} = rxData;
             if(byteCount ~= double(dataLength)) %if the number of bytes read from above is not equal to the preset data length then something is wrong
                 reason = 'Data Size is wrong';
                 lostSync = 1;
@@ -256,17 +250,18 @@ while(isvalid(hDataSerialPort))
                             p = typecast(uint8(rxData(offset+1: offset+valueLength)),'single'); %get all avaliable point cloud data from the sensor
 %                             rawPData{end+1} = p;
                             pointCloud = reshape(p,4, numInputPoints); %form point cloud, resultant matrix is 4 x numInputPoints in size
+                           
 %                             pointCloudData{end+1} = pointCloud;
                             %row 1 = raw magnitude data (range data)
                             %row 2 = raw angle data (azimuth data)
                             %row 3 = raw doppler data
                             %row 4 = raw snr data
                             
-                            staticInd = (pointCloud(3,:) == 0);   
-                            clutterPoints = pointCloud(1:2,staticInd);
-                            clutterInd = ismember(pointCloud(1:2,:)', clutterPoints', 'rows');
-                            clutterInd = clutterInd' & staticInd;
-                            pointCloud = pointCloud(1:3,~clutterInd);
+%                             staticInd = (pointCloud(3,:) == 0);   
+%                             clutterPoints = pointCloud(1:2,staticInd);
+%                             clutterInd = ismember(pointCloud(1:2,:)', clutterPoints', 'rows');
+%                             clutterInd = clutterInd' & staticInd;
+%                             pointCloud = pointCloud(1:3,~clutterInd);
                             
                             %posAll 1st row = Rsin(theta)
                             %posAll 2nd row = Rcos(theta)
@@ -303,6 +298,7 @@ while(isvalid(hDataSerialPort))
                             G(n)    = typecast(uint8(rxData(offset+65:offset+68)),'single');    %1x4=4bytes, extracts gating gain
                             offset = offset + 68; %increments offset
                         end
+                        
                         
                     case 8
                         % Target Index TLV - list of target ID's for the
