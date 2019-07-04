@@ -1,6 +1,15 @@
 %Kalman Filter Design Preliminary
 %Author: Hasnain Cheena
 
+%observations
+data = load('C:\Users\hasna\Documents\GitHub\OccupancyDetection\Data\centroidData.mat');
+%remove empty centroid cells from observations
+data = data.data;
+data = data(110:end);
+
+%rearrange to get 
+
+
 delT = 0.05;
 %A matrix, is the system matrix 
 A = [1 delT 0 0;
