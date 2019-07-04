@@ -1,36 +1,60 @@
-%% 
 %Kalman Filter Design Preliminary
-%Author: Hasnain Cheena 
+%Author: Hasnain Cheena
 
-deltaT = 0.000+1;
-Ts = deltaT;
+delT = 0.05;
+%A matrix, is the system matrix 
+A = [1 delT 0 0;
+    0 1 0 0;
+    0 0 1 delT;
+    0 0 0 1];
 
-%state space model
-A = [0 1 0 0;
-    2/(deltaT)^2 -2/deltaT 0 0;
-    0 0 0 1;
-    0 0 2/(deltaT)^2 -2/deltaT];
+%no B matrix as no input (u)
+B = zeros(4,1);
 
-B = [0 0;
-    -2/(deltaT)^2 0;
-    0 0;
-    0 -2/(deltaT)^2];
+%C matrix state variables we can measure 
+H = [1 0 0 0; 
+    0 0 1 0];
 
-C = [1 1 1 0];
-
+%no D matrix (no transmission matrix)
 D = 0;
 
-%observability
-observabilityMatrix = obsv(A,C);
-observabilityCheck = det(observabilityMatrix);
-    
-%plant model
-plant = ss(A,B,C,D,Ts);
+%observability check 
+obCheck = obsv(A,H);
+unob = length(A)-rank(obCheck);
 
-%process and measurement covariances
-W = 1;
-V = 1;
+Q = eye(4); 
+R = 1;
 
-%discrete kalman filter
-[kalmf, L, P, M] = kalman(plant, W,V);
-outputEstimate = kalmf(1,:);
+%note that F = e^A*(det)
+F = expm(A*delT);
+
+x = [ 0 10];
+P = [ 10 0
+0 10 ];
+Q = [ 1 1
+1 1 ];
+R = [ 1 ];
+z = [2.5 1 4 2.5 5.5 ];
+for i=1:5
+[xpred, Ppred] = predict(x, P, F, Q);
+[nu, S] = innovation(xpred, Ppred, z(i), H, R);
+[x, P] = innovation_update(xpred, Ppred, nu, S, H);
+end
+
+
+function [xpred, Ppred] = predict(x, P, F, Q)
+xpred = F*x;
+Ppred = F*P*F' + Q;
+end
+
+function [nu, S] = innovation(xpred, Ppred, z, H, R)
+nu = z - H*xpred; %% innovation
+S = R + H*Ppred*H'; %% innovation covariance
+end
+
+function [xnew, Pnew] = innovation_update(xpred, Ppred, nu, S, H)
+K = Ppred*H'*inv(S); %% Kalman gain
+xnew = xpred + K*nu; %% new state
+Pnew = Ppred - K*S*K'; %% new covariance
+deltaT = 0.05; %sampling time is 50ms
+end

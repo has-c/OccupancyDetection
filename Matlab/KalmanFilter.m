@@ -1,58 +1,58 @@
 %Kalman Filter Design Preliminary
-%Author: Hasnain Cheena 
+%Author: Hasnain Cheena
 
-%Test Dataset
-rangeMeasurements = 0:0.1:1;
-dopplerMeasurements = 0.1:0.05:0.6;
-azimuthMeasurements = 0.1:0.05:0.6;
-%each column is a different measurement each each row is a time instance
-u = [rangeMeasurements',dopplerMeasurements',azimuthMeasurements'];
+delT = 0.05;
+%A matrix, is the system matrix 
+A = [1 delT 0 0;
+    0 1 0 0;
+    0 0 1 delT;
+    0 0 0 1];
 
-deltaT = 0.001;
-Ts = deltaT;
+%no B matrix as no input (u)
+B = zeros(4,1);
 
-%state space model for plant
-A = [0 1 0 0;
-    2/(deltaT)^2 -2/deltaT 0 0;
-    0 0 0 1;
-    0 0 2/(deltaT)^2 -2/deltaT];
+%C/H matrix state variables we can measure 
+H = [1 0 0 0; 
+    0 0 1 0];
 
-B = [0 0;
-    -2/(deltaT)^2 0;
-    0 0;
-    0 -2/(deltaT)^2];
-
-C = [1 1 1 0];
-
+%no D matrix (no transmission matrix)
 D = 0;
 
-%plant model
-plant = ss(A,B,C,D,Ts,'inputname',{'u' 'w'},'outputname','y');
-%process and measurement covariances
-Q = 1;
-R = 1;
+%observability check 
+obCheck = obsv(A,H);
+unob = length(A)-rank(obCheck);
 
-%observability
-observabilityMatrix = obsv(A,C);
-observabilityCheck = det(observabilityMatrix);
-    
-%discrete kalman filter
-[kest, L, P, M] = kalman(plant, Q,R);
-%kest is the state space model of the kalman estimator
-outputEstimate = kest(1,:);
+Q = eye(4); 
+R = [1];
 
-%modified model from matlab website
-% a = A;
-% b = [B B 0*B];
-% c = [C;C];
-% d = [0 0 0;0 0 0;0 0 1];
-% P = ss(a,b,c,d,-1,'inputname',{'u' 'w' 'v'},'outputname',{'y' 'yv'});
-% 
-% sys = parallel(P,kalmf,1,1,[],[]);
-% 
-% SimModel = feedback(sys,1,4,2,1);   % Close loop around input #4 and output #2
-% SimModel = SimModel([1 3],[1 2 3]); % Delete yv from I/O list
-% 
-% w = sqrt(Q)*randn(n,1);
-% v = sqrt(R)*randn(n,1);
-    
+%note that F = e^A*(det)
+%F is the state transition matrix
+F = expm(A*delT);
+
+x = [ 0 ; 10];
+P = [ 10 0; 0 10 ];
+
+z = [2.5 1 4 2.5 5.5];
+for i=1:5
+[xpred, Ppred] = predict(x, P, F, Q);
+[nu, S] = innovation(xpred, Ppred, z(i), H, R);
+[x, P] = innovation_update(xpred, Ppred, nu, S, H);
+end
+
+
+function [xpred, Ppred] = predict(x, P, F, Q)
+xpred = F*x;
+Ppred = F*P*F' + Q;
+end
+
+function [nu, S] = innovation(xpred, Ppred, z, H, R)
+nu = z - H*xpred; %% innovation
+S = R + H*Ppred*H'; %% innovation covariance
+end
+
+function [xnew, Pnew] = innovation_update(xpred, Ppred, nu, S, H)
+K = Ppred*H'*inv(S); %% Kalman gain
+xnew = xpred + K*nu; %% new state
+Pnew = Ppred - K*S*K'; %% new covariance
+deltaT = 0.05; %sampling time is 50ms
+end
