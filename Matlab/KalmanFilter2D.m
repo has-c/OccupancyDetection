@@ -1,47 +1,117 @@
-%2D Kalman Filter Design
-%Discrete 2D Kalman Filter
+clc;
+clear;
+load('C:\Users\Abin\Documents\Github\OccupancyDetection\Data\centroidData.mat');
 
-A = [1.1269   -0.4940    0.1129;
-     1.0000         0         0;
-          0    1.0000         0];
+delT = 50*10^-3; % Frame rate
+A = [ 1 delT 0 0 ; 0 1 0 0 ; 0 0 1 delT ; 0 0 0 1]; %System Matrix
+F = expm(A*delT); %State transition matrix
+H = [ 1 0 0 0 ; 0 0 1 0]; %Output Matrix
+x = [ 0 ; 0 ; 0 ; 0]; %initial states
+P = eye(4);
+% Qc = eye(4);
+% syms T;
+% Qtemp = int(F*Qc*F, 0, T);
+% Q = subs(Qtemp, T, 50*10^-3);
+Q = eye(4); %previous Q doesnt seem to work
+R = [ 1 ; 1 ];
 
-B = [-0.3832;
-      0.5919;
-      0.5191];
+rawxycentroidData = load('C:\Users\Abin\Documents\Github\OccupancyDetection\Data\centroidData.mat');
+rawxycentroidData= rawxycentroidData.data;
+%Accessing cell arrays:  data{1,13}(1,2)
 
-C = [1 0 0];
+xytransposecentroidData = cellfun(@transpose,rawxycentroidData,'UniformOutput',false); %Tranposed X,Y for better structure
+rthetacentroidData = xytransposecentroidData;
+doublecount = 1 ; %iterator to find centroid doubles
 
-Plant = ss(A,[B B],C,0,-1,'inputname',{'u' 'w'},'outputname','y');
+for i=1:size(xytransposecentroidData,2)
+    if(size(xytransposecentroidData{1,i},2)>1)
+        xdoublestore(doublecount) = i; %Looking for double ups
+        doublecount = doublecount + 1;
+    end
+    for j = 1:size(xytransposecentroidData{1,i},2)
+        [rthetacentroidData{1,i}(2,j), rthetacentroidData{1,i}(1,j)] = cart2pol(xytransposecentroidData{1,i}(1,j),xytransposecentroidData{1,i}(2,j)); %Converting to polar
+    end
+end
 
-Q = 1; 
-R = 1;
-[kalmf,L,P,M] = kalman(Plant,Q,R);
-kalmf = kalmf(1,:);
+initialFound = [2.8680232;0.78993690]; %Hardcoded for removal of random centroid 
+% need more flexible approach for n centroids
 
-%whole plant and kalman filter
-a = A;
-b = [B B 0*B];
-c = [C;C];
-d = [0 0 0;0 0 1];
-P = ss(a,b,c,d,-1,'inputname',{'u' 'w' 'v'},'outputname',{'y' 'yv'});
+%removes 2nd random centroids using minimm distance
+%NOTE: this is 'harcoded' for this dataset ; needs flexbile approach for n
+%centroids
+for i=14:size(rthetacentroidData,2)
+    if(size(xytransposecentroidData{1,i},2)>1)
+        [~,idx]= min(sum((rthetacentroidData{1,i}-initialFound).^2));
+        rthetacentroidData{1,i} = (rthetacentroidData{1,i}(:,idx));
+        smallestCentroid = rthetacentroidData{1,i};
+    end
+end
 
+%main code
+for i=1:size(rthetacentroidData,2)
+    
+    if(~(isempty(rthetacentroidData{1,i})))
+        [xpred, Ppred] = predict(x, P, F, Q);%state prediction
+        z(1,1)= rthetacentroidData{1,i}(1,1); %hardcoded for 1 centroid
+        z(2,1)= rthetacentroidData{1,i}(2,1);
+        [nu, S] = innovation(xpred, Ppred, z , H, R); %innovation function
+        [x, P] = innovation_update(xpred, Ppred, nu, S, H);%update function
+        xtracked(:,i) = x; %stores each step
+    end
+    
+    %Plots centroids on xy coordiates
+    % for i=1:size(xytransposecentroidData,2)
+    %     if(~(isempty(xytransposecentroidData{1,i})))
+    %         xytransposecentroidData{1,i}(1,1);
+    %         xytransposecentroidData{1,i}(2,1);
+    %         scatter(xytransposecentroidData{1,i}(1,1),xytransposecentroidData{1,i}(2,1));
+    %         axis([-6 6 0 6])
+    %         pause(50*10^-3);
+    %         refreshdata;
+    %     end
+    % end
+    
+    % plot centroid polar plot before Kalman
+    
+%     for i=1:size(rthetacentroidData,2)
+%         if(~(isempty(rthetacentroidData{1,i})))
+%             polarscatter(rthetacentroidData{1,i}(2,1),rthetacentroidData{1,i}(1,1));
+%             hold on; %Held so we can compare trails (look for better approach though)
+%             title('Before Kalman');
+%             rlim([0 6]);
+%             %pause(50*10^-3); %supposed to simulate time between frames, but hold
+%             %on is computationally expensive, so pause (0) is usually used for pace
+%         end
+%     end
+%     
+    %Polar plot
+    
+%     for k = 1 : length(xtracked)
+%         figure(2)
+%         polarscatter(xtracked(3,k),xtracked(1,k));
+%         hold on;
+%         title('After kalman 2')
+%         rlim([0 6])
+%         %pause(50*10^-3); %supposed to simulate time between frames, but hold
+%         %on is computationally expensive, so pause (0) is usually used
+%     end
+    
+    
+end
 
-%system in parallel
-sys = parallel(P,kalmf,1,1,[],[]);
+function [xpred, Ppred] = predict(x, P, F, Q)%prediction
+xpred = F*x;
+Ppred = F*P*F' + Q;
+end
 
-SimModel = feedback(sys,1,4,2,1);   % Close loop around input #4 and output #2
-SimModel = SimModel([1 3],[1 2 3]); % Delete yv from I/O list
+function [nu, S] = innovation(xpred, Ppred, z, H, R)
+nu = z - H*xpred; %% innovation
+S = R + H*Ppred*H'; %% innovation covariance
+end
 
-t = [0:100]';
-u = sin(t/5);
+function [xnew, Pnew] = innovation_update(xpred, Ppred, nu, S, H)
+K = Ppred*H'*inv(S); %% Kalman gain
+xnew = xpred + K*nu; %% new state
+Pnew = Ppred - K*S*K'; %% new covariance
 
-n = length(t);
-rng default
-w = sqrt(Q)*randn(n,1);
-v = sqrt(R)*randn(n,1);
-
-[out,x] = lsim(SimModel,[w,v,u]);
-
-y = out(:,1);   % true response
-ye = out(:,2);  % filtered response
-yv = y + v;     % measured response
+end
