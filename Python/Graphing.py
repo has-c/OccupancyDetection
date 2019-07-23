@@ -68,7 +68,6 @@ def Graphing(filePath, win, s1):
         
         s1.setData(posX.values, posY.values)
         QtGui.QApplication.processEvents() 
-        time.sleep(0.1)
     
     
 
