@@ -41,24 +41,8 @@ def readMeasurements(positionsDf):
                     frame = pd.concat([frame,data])
 
     return pointCloudPositions
-
-def iterativeDfs(vertexID, edgeMatrix, startNode):
-    
-    visited = np.array([], dtype=np.int)
-    dfsStack = np.array([startNode])
-
-    while np.logical_not(np.equal(dfsStack.size,0)):
-        vertex, dfsStack = dfsStack[-1], dfsStack[:-1] #equivalent to stack pop function
-        if vertex not in visited:
-            #find unvisited nodes
-            unvisitedNodes = vertexID[np.logical_not(np.isnan(edgeMatrix[int(vertex), :]))]
-            visited = np.append(visited, vertex)
-            #add unvisited nodes to the stack
-            dfsStack = np.append(dfsStack, unvisitedNodes[np.logical_not(np.isin(unvisitedNodes,visited))])
-    
-    return visited
-
-def Clustering(filePath):
+ 
+def ReadWriteClustering(filePath):
     #graph constraints and initialize variables
     weightThreshold = 0.2 #maximum distance between points
     minClusterSize = 30 #minimum cluster size
@@ -71,68 +55,55 @@ def Clustering(filePath):
     #to clear the information within the file
     #remove all information within the file
     # open(filePath, "w").close()
-
+    
     for vertexDf in pointCloudPositions:
-        posX = vertexDf['X'].values
-        posY = vertexDf['Y'].values
-        #posX and posY given by 
-        vertexID = np.arange(len(posX))
-        vertexList = np.arange(len(posX))
+        pointsX = vertexDf['X'].values
+        pointsY = vertexDf['Y'].values
         clusterDf = pd.DataFrame([], columns=['X', 'Y', 'CentroidNumber'])
         clusterDf.to_csv('ClusterData.csv', mode='a', header=True, index=False)
 
-        if len(posX) >= minClusterSize:
-            edgeMatrix = np.zeros((len(posX), len(posY)))
+        if len(pointsX) >= minClusterSize:
+            
+            clusterer = DBSCAN(eps=0.5, min_samples=20)
+            clusterer.fit(pd.DataFrame(np.transpose(np.array([pointsX,pointsY]))).values)
 
-            #create distance matrix
-            #x1 - x0
-            xDifference = np.subtract(np.repeat(posX, repeats=len(posX)).reshape(len(posX), len(posX)), 
-                                    np.transpose(np.repeat(posX, repeats=len(posX)).reshape(len(posX), len(posX))))
-            #y1 - y0
-            yDifference = np.subtract(np.repeat(posY, repeats=len(posY)).reshape(len(posY), len(posY)), 
-                                    np.transpose(np.repeat(posY, repeats=len(posY)).reshape(len(posY), len(posY))))
-            #euclidean distance calculation
-            edgeMatrix = np.sqrt(np.add(np.square(xDifference), np.square(yDifference)))
-
-            #weight based reduction of graph/remove edges by replacing edge weight by np.NaN
-            weightMask = np.logical_or(np.greater(edgeMatrix,weightThreshold), np.equal(edgeMatrix, 0))
-            edgeMatrix[weightMask] = np.NaN
-
-            #perform iterative dfs
-            pointsX = np.array([])
-            pointsY = np.array([])
-
-            centroidNumber = 0
-            while vertexID.size > 0:
-                startNode = vertexID[0]
-                visited = iterativeDfs(vertexList, edgeMatrix, startNode)
-                #remove visited nodes (ie only slice off all unvisited nodes)
-                vertexID = vertexID[np.logical_not(np.isin(vertexID, visited))]
-                #visited is a component, extract cluster from it if possible
-                if visited.size >= minClusterSize:
-                    pointsX = np.append(pointsX, posX[visited])
-                    pointsY = np.append(pointsY, posY[visited]) 
-
-            if pointsX.size == 0:
+            if clusterer.core_sample_indices_.size > 0:
+                #array that contains the x,y positions and the cluster association number
+                clusters = np.array([pointsX[clusterer.core_sample_indices_],
+                          pointsY[clusterer.core_sample_indices_], 
+                         clusterer.labels_[clusterer.core_sample_indices_]])
+                for centroidNumber in np.unique(clusters[2,:]):
+                    xMean = np.mean(clusters[0,:][np.isin(clusters[2,:], centroidNumber)])
+                    yMean = np.mean(clusters[1,:][np.isin(clusters[2,:], centroidNumber)])
+            else:
                 centroidDf = pd.DataFrame(np.expand_dims(np.array([np.NaN, np.NaN, 0]), axis=0))
                 centroidDf.to_csv('ClusterData.csv', mode='a', index=False, header=None)
-            else:
-                clusterer = DBSCAN(eps=0.5, min_samples=20)
-                clusterer.fit(pd.DataFrame(np.transpose(np.array([pointsX,pointsY]))).values)
-
-                if clusterer.core_sample_indices_.size > 0:
-                    #array that contains the x,y positions and the cluster association number
-                    clusters = np.array([pointsX[clusterer.core_sample_indices_],
-                            pointsY[clusterer.core_sample_indices_], 
-                            clusterer.labels_[clusterer.core_sample_indices_]])
-                    for centroidNumber in np.unique(clusters[2,:]):
-                        xMean = np.mean(clusters[0,:][np.isin(clusters[2,:], centroidNumber)])
-                        yMean = np.mean(clusters[1,:][np.isin(clusters[2,:], centroidNumber)])
-                        centroidDf = pd.DataFrame(np.expand_dims(np.array([xMean, yMean, centroidNumber]), axis=0))
-                        centroidDf.to_csv('ClusterData.csv', mode='a', index=False, header=None)
-                else:
-                    centroidDf = pd.DataFrame(np.expand_dims(np.array([np.NaN, np.NaN, 0]), axis=0))
-                    centroidDf.to_csv('ClusterData.csv', mode='a', index=False, header=None)
         else:
             centroidDf = pd.DataFrame(np.expand_dims(np.array([np.NaN, np.NaN, 0]), axis=0))
             centroidDf.to_csv('ClusterData.csv', mode='a', index=False, header=None)
+            
+def LiveClustering(vertexDf):
+    
+    #initialize constraints
+    minClusterSize = 15
+    
+    #vertexDf is just the frame 
+    pointsX = vertexDf['X'].values
+    pointsY = vertexDf['Y'].values
+
+    if len(pointsX) >= minClusterSize:
+
+        clusterer = DBSCAN(eps=0.5, min_samples=20)
+        clusterer.fit(pd.DataFrame(np.transpose(np.array([pointsX,pointsY]))).values)
+
+        if clusterer.core_sample_indices_.size > 0:
+            #array that contains the x,y positions and the cluster association number
+            clusters = np.array([pointsX[clusterer.core_sample_indices_],
+                      pointsY[clusterer.core_sample_indices_], 
+                     clusterer.labels_[clusterer.core_sample_indices_]])
+            for centroidNumber in np.unique(clusters[2,:]):
+                xMean = np.mean(clusters[0,:][np.isin(clusters[2,:], centroidNumber)])
+                yMean = np.mean(clusters[1,:][np.isin(clusters[2,:], centroidNumber)])
+
+
+    return yMean, xMean
