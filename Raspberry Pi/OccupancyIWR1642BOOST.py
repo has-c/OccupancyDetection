@@ -92,7 +92,7 @@ def validateChecksum(recieveHeader):
 def main():
     
     #user macros
-    useTargetInfo = False
+    useTargetInfo = True
     usePointCloud = True
     
     #valid header variables and constant
@@ -143,41 +143,34 @@ def main():
     #plotting
     app = QtGui.QApplication([])
 
-    # Set the plot 
-    pg.setConfigOption('background','w')
-    winPointCloud = pg.GraphicsWindow(title="Point Cloud")
-    windowTemp = pg.GraphicsWindow(title="Temporary Visualisation")
-    winTarget = pg.GraphicsWindow(title="Target")
-    p = winPointCloud.addPlot()
-    t = winTarget.addPlot()
-    temp = windowTemp.addPlot()
-    p.setXRange(-6,6)
-    p.setYRange(0,6)
-    p.setLabel('left',text = 'Y position (m)')
-    p.setLabel('bottom', text= 'X position (m)')
-    t.setXRange(-6,6)
-    t.setYRange(0,6)
-    t.setLabel('left',text = 'Y position (m)')
-    t.setLabel('bottom', text= 'X position (m)')
-    temp.setXRange(-6,6)
-    temp.setYRange(0,6)
-    temp.setLabel('left',text = 'Y position (m)')
-    temp.setLabel('bottom', text= 'X position (m)')
-    s1 = p.plot([],[],pen=None,symbol='o') #point cloud
-    s2 = t.plot([],[],pen=None,symbol='x') #target
-    s3 = temp.plot([],[],pen=None,symbol='o') #temporary data
+#    # Set the plot 
+#    pg.setConfigOption('background','w')
+#    winPointCloud = pg.GraphicsWindow(title="Point Cloud")
+#    winTarget = pg.GraphicsWindow(title="Target")
+#    p = winPointCloud.addPlot()
+#    t = winTarget.addPlot()
+#    p.setXRange(-6,6)
+#    p.setYRange(0,6)
+#    p.setLabel('left',text = 'Y position (m)')
+#    p.setLabel('bottom', text= 'X position (m)')
+#    t.setXRange(-6,6)
+#    t.setYRange(0,6)
+#    t.setLabel('left',text = 'Y position (m)')
+#    t.setLabel('bottom', text= 'X position (m)')
+#    s1 = p.plot([],[],pen=None,symbol='o') #point cloud
+#    s2 = t.plot([],[],pen=None,symbol='x') #target
 
     while Dataport.is_open:
-    #     print('In first while')
+        print('In first while')
         while (not(lostSync) and Dataport.is_open):
             #check for a valid frame header
             if not(gotHeader):
-    #             print('In second while')
+                print('In second while')
                 #in_waiting = amount of bytes in the buffer
                 rawRecieveHeader = Dataport.read(frameHeaderLength)
-    #             print('after raw header recieved')
+                print('after raw header recieved')
                 recieveHeader = np.frombuffer(rawRecieveHeader, dtype = 'uint8')
-    #             print(recieveHeader)
+                print(recieveHeader)
 
             #magic byte check
             if not(np.array_equal(recieveHeader[0:8],magicBytes)):
@@ -211,6 +204,7 @@ def main():
             if dataLength > 0:
                 #read the rest of the packet
                 rawData = Dataport.read(dataLength)
+                print('READING DATA')
                 data = np.frombuffer(rawData, dtype = 'uint8')
 
                 pointCloud, targetDict = tlvParsing(data, dataLength, tlvHeaderLengthInBytes, pointLengthInBytes,targetLengthInBytes)
@@ -247,43 +241,9 @@ def main():
                             posY = np.multiply(effectivePointCloud[0,:], np.cos(effectivePointCloud[1,:]))
                             
                             
-                            #create DBSCAN dataset - find a more efficient way to do this
-                            dbscanDataSet = np.array([])
-                            for pointIndex in range(0, len(posX)):
-                                point = np.array([posX[pointIndex], posY[pointIndex]])
-                                if pointIndex == 0:
-                                    dbscanDataSet = [point]
-                                else:
-                                    dbscanDataSet = np.append(dbscanDataSet, [point], axis=0)
-
-                            #run DBSCAN
-                            db = DBSCAN(eps=0.25,metric='euclidean',min_samples=16).fit(dbscanDataSet)
-
-                            core_samples_mask = np.zeros_like(db.labels_, dtype=bool) #return an array of zeros with the same shape as labels
-                            core_samples_mask[db.core_sample_indices_] = True #place true where the index leads to a point which is in a cluster
-                            labels = db.labels_
-                            unique_labels = set(labels)
-                            xy = np.array([])
-                            for label in unique_labels:
-                                if label == -1:
-                                    continue
-                                class_member_mask = (labels == label) #mask all cluster members
-                                if len(xy) == 0:
-                                    xy = dbscanDataSet[class_member_mask & core_samples_mask]
-                                else:    
-                                    xy = np.concatenate((xy, dbscanDataSet[class_member_mask & core_samples_mask]),axis=0)
-                                    
-                            if len(xy) == 0:
-                                s3.setData([],[])
-                                QtGui.QApplication.processEvents()
-                                print('PEOPLE COUNT: 0')
-                            else:
-                                s3.setData(xy[:, 0],xy[:, 1])
-                                QtGui.QApplication.processEvents()
-                                print('PEOPLE COUNT: ', str(max(unique_labels)+1))
-                                s1.setData(posX,posY)
-                                QtGui.QApplication.processEvents() 
-                            
+                            s1.setData(posX, posY)
+                            QtGui.QApplication.processEvents() 
+                         
                             
 
 
