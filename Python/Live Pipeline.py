@@ -224,141 +224,185 @@ def LiveRKF(currentrawxycentroidData, centroidX, centroidP):
     return centroidX, centroidP
 
 def main():
-    #read and parse data
-#plotting
-app = QtGui.QApplication([])
 
-# Set the plot 
-pg.setConfigOption('background','w')
-win = pg.GraphicsWindow(title="Testing GUI")
-p1 = win.addPlot()
-p2 = win.addPlot()
-p1.setXRange(-6,6)
-p1.setYRange(0,6)
-p1.setLabel('left',text = 'Y position (m)')
-p1.setLabel('bottom', text= 'X position (m)')
-p2.setXRange(-6,6)
-p2.setYRange(0,6)
-p2.setLabel('left',text = 'Y position (m)')
-p2.setLabel('bottom', text= 'X position (m)')
-s1 = p1.plot([],[],pen=None,symbol='o')
-s2 = p2.plot([],[],pen=None,symbol='x')
 
-#tracking variables
-centroidX =np.zeros((4,1))
-centroidP = []
-P = np.identity(4);
-centroidP.extend([P])
+    # Change the configuration file name
+    configFileName = 'mmw_pplcount_demo_default.cfg'
 
-while Dataport.is_open:
-#     print('In first while')
-    while (not(lostSync) and Dataport.is_open):
-        #check for a valid frame header
-        if not(gotHeader):
-#             print('In second while')
-            #in_waiting = amount of bytes in the buffer
-            rawRecieveHeader = Dataport.read(frameHeaderLength)
-#             print('after raw header recieved')
-            recieveHeader = np.frombuffer(rawRecieveHeader, dtype = 'uint8')
-#             print(recieveHeader)
+    global CLIport
+    global Dataport
 
-        #magic byte check
-        if not(np.array_equal(recieveHeader[0:8],magicBytes)):
-            print('MAGIC BYTES ARE WRONG')
-            lostSync = True
-            break
+    CLIport = {}
+    Dataport = {}
 
-        #valid the checksum
-        CS = validateChecksum(recieveHeader)
-        if (CS != 0):
-            print('HEADER CHECKSUM IS WRONG')
-            lostSync = True
-            break
+    CLIport = serial.Serial('COM4', 115200)
+    if not(CLIport.is_open):
+        CLIport.open()
+    Dataport = serial.Serial('COM3', 921600)
+    if not(Dataport.is_open):
+        Dataport.open()
 
-        #have a valid frame header
-        headerContent = readHeader(recieveHeader)
+    # Read the configuration file and send it to the board
+    config = [line.rstrip('\r\n') for line in open(configFileName)]
+    for i in config:
+        CLIport.write((i+'\n').encode())
+        print(i)
+        time.sleep(0.01)
 
-        if (gotHeader):
-            if headerContent['frameNumber'] > targetFrameNumber:
-                targetFrameNumber = headerContent['frameNumber']
-                gotHeader = False
-                print('FOUND SYNC AT FRAME NUMBER ' + str(targetFrameNumber))
-            else:
-                print('OLD FRAME')
-                gotHeader = False
+    #close control port
+    CLIport.close()
+
+    #initialise variables
+    lostSync = False
+
+    #valid header variables and constant
+    magicBytes = np.array([2,1,4,3,6,5,8,7], dtype= 'uint8')
+
+    isMagicOk = False
+    isDataOk = False
+    gotHeader = False
+
+    frameHeaderLength = 52 #52 bytes long
+    tlvHeaderLengthInBytes = 8
+    pointLengthInBytes = 16
+    frameNumber = 1
+    targetFrameNumber = 0
+    targetLengthInBytes = 68
+
+    #plotting
+    app = QtGui.QApplication([])
+
+    # Set the plot 
+    pg.setConfigOption('background','w')
+    win = pg.GraphicsWindow(title="Testing GUI")
+    p1 = win.addPlot()
+    p2 = win.addPlot()
+    p1.setXRange(-6,6)
+    p1.setYRange(0,6)
+    p1.setLabel('left',text = 'Y position (m)')
+    p1.setLabel('bottom', text= 'X position (m)')
+    p2.setXRange(-6,6)
+    p2.setYRange(0,6)
+    p2.setLabel('left',text = 'Y position (m)')
+    p2.setLabel('bottom', text= 'X position (m)')
+    s1 = p1.plot([],[],pen=None,symbol='o')
+    s2 = p2.plot([],[],pen=None,symbol='x')
+
+    #tracking variables
+    centroidX =np.zeros((4,1))
+    centroidP = []
+    P = np.identity(4);
+    centroidP.extend([P])
+
+    while Dataport.is_open:
+    #     print('In first while')
+        while (not(lostSync) and Dataport.is_open):
+            #check for a valid frame header
+            if not(gotHeader):
+    #             print('In second while')
+                #in_waiting = amount of bytes in the buffer
+                rawRecieveHeader = Dataport.read(frameHeaderLength)
+    #             print('after raw header recieved')
+                recieveHeader = np.frombuffer(rawRecieveHeader, dtype = 'uint8')
+    #             print(recieveHeader)
+
+            #magic byte check
+            if not(np.array_equal(recieveHeader[0:8],magicBytes)):
+                print('MAGIC BYTES ARE WRONG')
                 lostSync = True
                 break
 
-        dataLength = int(headerContent['packetLength'] - frameHeaderLength)
-     
-        if dataLength > 0:
-            #read the rest of the packet
-            rawData = Dataport.read(dataLength)
-            data = np.frombuffer(rawData, dtype = 'uint8')
-            
-            pointCloud, targetDict = tlvParsing(data, dataLength, tlvHeaderLengthInBytes, pointLengthInBytes,targetLengthInBytes)
-            
-            #target
-            if len(targetDict) != 0:
-                targetX = targetDict['kinematicData'][0,:]
-                targetY = targetDict['kinematicData'][1,:]
-                s2.setData(targetX,targetY)
-                QtGui.QApplication.processEvents() 
-            
-            #pointCloud
-            if not(pointCloud is None):
-                #constrain point cloud to within the effective sensor range
-                #range 1 < x < 6
-                #azimuth -50 deg to 50 deg
-                #doppler is greater than 0 to remove static objects
-                #check whether corresponding range and azimuth data are within the constraints
-                
-                effectivePointCloud = np.array([])
-                for index in range(0, len(pointCloud[0,:])):
-                    if (pointCloud[0,index] > 1 and pointCloud[0,index] < 6) and (pointCloud[1, index] > -50*np.pi/180 and pointCloud[1, index] < 50*np.pi/180) and pointCloud[3,index] > 0:
-                        #concatenate columns to the new point cloud
-                        if len(effectivePointCloud) == 0:
-                            effectivePointCloud = np.reshape(pointCloud[:, index], (4,1), order="F")
-                        else:
-                            point = np.reshape(pointCloud[:, index], (4,1),order="F")
-                            effectivePointCloud = np.hstack((effectivePointCloud, point))
+            #valid the checksum
+            CS = validateChecksum(recieveHeader)
+            if (CS != 0):
+                print('HEADER CHECKSUM IS WRONG')
+                lostSync = True
+                break
 
-                if len(effectivePointCloud) != 0:
-                    posX = np.multiply(effectivePointCloud[0,:], np.sin(effectivePointCloud[1,:]))
-                    posY = np.multiply(effectivePointCloud[0,:], np.cos(effectivePointCloud[1,:]))
-                    yMean, xMean = LiveClustering(posX, posY)
-                    centroidData = np.array([xMean, yMean])
-                    #track
-                    centroidX, centroidP = LiveRKF(centroidData, centroidX, centroidP)
-                    #plot
-                    #calculate x and y positions
-                    xPositions = np.multiply(centroidX[0,:], np.cos(centroidX[2,:]))
-                    yPositions = np.multiply(centroidX[0,:], np.sin(centroidX[2,:]))
-                    numberOfTargets = len(xPositions)
-                    s1.setData(xPositions, yPositions)
-#                     message = "Occupancy Estimate: " + str(numberOfTargets)
-#                     win.removeItem(occupancyEstimate)
-#                     occupancyEstimate = win.addLabel(text=message)
+            #have a valid frame header
+            headerContent = readHeader(recieveHeader)
+
+            if (gotHeader):
+                if headerContent['frameNumber'] > targetFrameNumber:
+                    targetFrameNumber = headerContent['frameNumber']
+                    gotHeader = False
+                    print('FOUND SYNC AT FRAME NUMBER ' + str(targetFrameNumber))
+                else:
+                    print('OLD FRAME')
+                    gotHeader = False
+                    lostSync = True
+                    break
+
+            dataLength = int(headerContent['packetLength'] - frameHeaderLength)
+
+            if dataLength > 0:
+                #read the rest of the packet
+                rawData = Dataport.read(dataLength)
+                data = np.frombuffer(rawData, dtype = 'uint8')
+
+                pointCloud, targetDict = tlvParsing(data, dataLength, tlvHeaderLengthInBytes, pointLengthInBytes,targetLengthInBytes)
+
+                #target
+                if len(targetDict) != 0:
+                    targetX = targetDict['kinematicData'][0,:]
+                    targetY = targetDict['kinematicData'][1,:]
+                    s2.setData(targetX,targetY)
                     QtGui.QApplication.processEvents() 
 
-            
-    
-    while lostSync:
-        for rxIndex in range(0,8):
-            rxByte = Dataport.read(1)
-            rxByte = np.frombuffer(rxByte, dtype = 'uint8')
-            #if the byte received is not in sync with the magicBytes sequence then break and start again
-            if rxByte != magicBytes[rxIndex]:
-                break
-        
-        if rxIndex == 7: #got all the magicBytes
-            lostSync = False
-            #read the header frame
-            rawRecieveHeaderWithoutMagicBytes = Dataport.read(frameHeaderLength-len(magicBytes))
-            rawRecieveHeaderWithoutMagicBytes = np.frombuffer(rawRecieveHeaderWithoutMagicBytes, dtype = 'uint8')
-            #concatenate the magic bytes onto the header without magic bytes
-            recieveHeader = np.concatenate([magicBytes,rawRecieveHeaderWithoutMagicBytes], axis=0)
-            gotHeader = True
-            print('BACK IN SYNC')
+                #pointCloud
+                if not(pointCloud is None):
+                    #constrain point cloud to within the effective sensor range
+                    #range 1 < x < 6
+                    #azimuth -50 deg to 50 deg
+                    #doppler is greater than 0 to remove static objects
+                    #check whether corresponding range and azimuth data are within the constraints
+
+                    effectivePointCloud = np.array([])
+                    for index in range(0, len(pointCloud[0,:])):
+                        if (pointCloud[0,index] > 1 and pointCloud[0,index] < 6) and (pointCloud[1, index] > -50*np.pi/180 and pointCloud[1, index] < 50*np.pi/180) and pointCloud[3,index] > 0:
+                            #concatenate columns to the new point cloud
+                            if len(effectivePointCloud) == 0:
+                                effectivePointCloud = np.reshape(pointCloud[:, index], (4,1), order="F")
+                            else:
+                                point = np.reshape(pointCloud[:, index], (4,1),order="F")
+                                effectivePointCloud = np.hstack((effectivePointCloud, point))
+
+                    if len(effectivePointCloud) != 0:
+                        posX = np.multiply(effectivePointCloud[0,:], np.sin(effectivePointCloud[1,:]))
+                        posY = np.multiply(effectivePointCloud[0,:], np.cos(effectivePointCloud[1,:]))
+                        yMean, xMean = LiveClustering(posX, posY)
+                        centroidData = np.array([xMean, yMean])
+                        #track
+                        centroidX, centroidP = LiveRKF(centroidData, centroidX, centroidP)
+                        #plot
+                        #calculate x and y positions
+                        xPositions = np.multiply(centroidX[0,:], np.cos(centroidX[2,:]))
+                        yPositions = np.multiply(centroidX[0,:], np.sin(centroidX[2,:]))
+                        numberOfTargets = len(xPositions)
+                        s1.setData(xPositions, yPositions)
+    #                     message = "Occupancy Estimate: " + str(numberOfTargets)
+    #                     win.removeItem(occupancyEstimate)
+    #                     occupancyEstimate = win.addLabel(text=message)
+                        QtGui.QApplication.processEvents() 
+
+
+
+        while lostSync:
+            for rxIndex in range(0,8):
+                rxByte = Dataport.read(1)
+                rxByte = np.frombuffer(rxByte, dtype = 'uint8')
+                #if the byte received is not in sync with the magicBytes sequence then break and start again
+                if rxByte != magicBytes[rxIndex]:
+                    break
+
+            if rxIndex == 7: #got all the magicBytes
+                lostSync = False
+                #read the header frame
+                rawRecieveHeaderWithoutMagicBytes = Dataport.read(frameHeaderLength-len(magicBytes))
+                rawRecieveHeaderWithoutMagicBytes = np.frombuffer(rawRecieveHeaderWithoutMagicBytes, dtype = 'uint8')
+                #concatenate the magic bytes onto the header without magic bytes
+                recieveHeader = np.concatenate([magicBytes,rawRecieveHeaderWithoutMagicBytes], axis=0)
+                gotHeader = True
+                print('BACK IN SYNC')
 
 main()        
