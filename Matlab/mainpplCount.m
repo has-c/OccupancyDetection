@@ -369,51 +369,51 @@ while(isvalid(hDataSerialPort))
          end
         
        %plot raw point cloud positions and targets
-       if (~isempty(pointCloud) && ~isempty(S))
-           xPos = posAll(1,:); 
-           yPos = posAll(2,:);
-           xTar = S(1,:);
-           yTar = S(2,:);
+%        if (~isempty(pointCloud) && ~isempty(S))
+%            xPos = posAll(1,:); 
+%            yPos = posAll(2,:);
+%            xTar = S(1,:);
+%            yTar = S(2,:);
+%            
+%            figure(fig1);
+%            subplot(2,1,1);
+%            scatter(xPos, yPos);
+%            xlim([-6 6]);
+%            ylim([0 6]);
+%            xlabel('x Position');
+%            ylabel('y Position'); 
+%            
+%            subplot(2,1,2);
+%            scatter(xTar,yTar,'xr');
+%            xlim([-6 6]);
+%            ylim([0 6]);
+%            xlabel('x Position');
+%            ylabel('y Position'); 
+%            
+%        else
+%            xPos = [];
+%            yPos = [];
+%            xTar = [];
+%            yTar = [];
+%            
+%            figure(fig1);
+%            subplot(2,1,1);
+%            scatter(xPos, yPos);
+%            xlim([-6 6]);
+%            ylim([0 6]);
+%            xlabel('x Position');
+%            ylabel('y Position');
+%            
+%            subplot(2,1,2);
+%            scatter(xTar,yTar,'xr');
+%            xlim([-6 6]);
+%            ylim([0 6]);
+%            xlabel('x Position');
+%            ylabel('y Position');
            
-           figure(fig1);
-           subplot(2,1,1);
-           scatter(xPos, yPos);
-           xlim([-6 6]);
-           ylim([0 6]);
-           xlabel('x Position');
-           ylabel('y Position'); 
-           
-           subplot(2,1,2);
-           scatter(xTar,yTar,'xr');
-           xlim([-6 6]);
-           ylim([0 6]);
-           xlabel('x Position');
-           ylabel('y Position'); 
-           
-       else
-           xPos = [];
-           yPos = [];
-           xTar = [];
-           yTar = [];
-           
-           figure(fig1);
-           subplot(2,1,1);
-           scatter(xPos, yPos);
-           xlim([-6 6]);
-           ylim([0 6]);
-           xlabel('x Position');
-           ylabel('y Position');
-           
-           subplot(2,1,2);
-           scatter(xTar,yTar,'xr');
-           xlim([-6 6]);
-           ylim([0 6]);
-           xlabel('x Position');
-           ylabel('y Position');
            
            
-           
-       end
+%        end
 
     end
     
