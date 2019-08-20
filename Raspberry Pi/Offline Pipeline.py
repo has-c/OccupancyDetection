@@ -7,53 +7,25 @@ import time
 import numpy as np
 import pandas as pd
 from scipy.io import loadmat
-import csv
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import KMeans
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
-import multiprocessing as mp
+from sklearn.metrics.pairwise import pairwise_distances
 
-def validateChecksum(recieveHeader):
-    h = recieveHeader.view(dtype=np.uint16)
-    a = np.array([sum(h)], dtype=np.uint32)
-    b = np.array([sum(a.view(dtype=np.uint16))], dtype=np.uint16)
-    CS = np.uint16(~(b))
-    return CS
-
-def readHeader(recieveHeader):
-    headerContent = dict()
-    index = 0
+def tlvParsing(data, tlvHeaderLengthInBytes, pointLengthInBytes, targetLengthInBytes):
     
-    headerContent['magicBytes'] = recieveHeader[index:index+8]
-    index += 20
-    
-    headerContent['packetLength'] = recieveHeader[index:index+4].view(dtype=np.uint32)
-    index += 4
-        
-    headerContent['frameNumber'] = recieveHeader[index:index+4].view(dtype=np.uint32)
-    index += 24
-    
-    headerContent['numTLVs'] = recieveHeader[index:index+2].view(dtype=np.uint16)
-    
-    return headerContent
-
-def tlvParsing(data, dataLength, tlvHeaderLengthInBytes, pointLengthInBytes, targetLengthInBytes):
+    data = np.frombuffer(data, dtype = 'uint8')
     
     targetDict = dict()
-    pointCloud = None
+    pointCloud = np.array([])
     index = 0
     #tlv header parsing
     tlvType = data[index:index+4].view(dtype=np.uint32)
     tlvLength = data[index+4:index+8].view(dtype=np.uint32)
-    #TLV size check
-    if (tlvLength + index > dataLength):
-        print('TLV SIZE IS WRONG')
-        lostSync = True
-        return
     
     index += tlvHeaderLengthInBytes
     pointCloudDataLength = tlvLength - tlvHeaderLengthInBytes
-    if tlvType == 6: #point cloud TLV
+    if tlvType.size > 0 and tlvType == 6: #point cloud TLV
         numberOfPoints = pointCloudDataLength/pointLengthInBytes
         if numberOfPoints > 0:
             p = data[index:index+pointCloudDataLength[0]].view(dtype=np.single)
@@ -61,79 +33,122 @@ def tlvParsing(data, dataLength, tlvHeaderLengthInBytes, pointLengthInBytes, tar
             #each point is 16 bytes - 4 bytes for each property - range, azimuth, doppler, snr
             pointCloud = np.reshape(p,(4, int(numberOfPoints)),order="F")
     
-    return pointCloud
-
-def LiveParsing(tlvStream):
-    
-    tlvHeaderLengthInBytes = 8
-    pointLengthInBytes = 16
-    frameNumber = 0
-    
-    tlvStream = np.frombuffer(tlvStream, dtype = 'uint8')
-    #tlv header
-    index = 0
+    #increment the index so it is possible to read the target list
+    index += pointCloudDataLength
     #tlv header parsing
-    tlvType = tlvStream[index:index+4].view(dtype=np.uint32)
-    tlvLength = tlvStream[index+4:index+8].view(dtype=np.uint32)
-
+    tlvType = data[index[0]:index[0]+4].view(dtype=np.uint32)
+    tlvLength = data[index[0]+4:index[0]+8].view(dtype=np.uint32)
     index += tlvHeaderLengthInBytes
-    tlvDataLength = tlvLength - tlvHeaderLengthInBytes
-
-    if tlvType == 6: 
-        numberOfPoints = tlvDataLength/pointLengthInBytes
-        p = tlvStream[index:index+tlvDataLength[0]].view(np.single)
-        pointCloud = np.reshape(p,(4, int(numberOfPoints)),order="F")
-
-        if not(pointCloud is None):
-            #constrain point cloud to within the effective sensor range
-            #range 1 < x < 6
-            #azimuth -50 deg to 50 deg
-            #check whether corresponding range and azimuth data are within the constraints
-
-            effectivePointCloud = np.array([])
-            for index in range(0, len(pointCloud[0,:])):
-                if (pointCloud[0,index] > 1 and pointCloud[0,index] < 6) \
-                and (pointCloud[1, index] > -50*np.pi/180 \
-                    and pointCloud[1, index] < 50*np.pi/180):
-
-                    #concatenate columns to the new point cloud
-                    if len(effectivePointCloud) == 0:
-                        effectivePointCloud = np.reshape(pointCloud[:, index], (4,1), order="F")
-                    else:
-                        point = np.reshape(pointCloud[:, index], (4,1),order="F")
-                        effectivePointCloud = np.hstack((effectivePointCloud, point))
-
-            if len(effectivePointCloud) != 0:
-                posX = np.multiply(effectivePointCloud[0,:], np.sin(effectivePointCloud[1,:]))
-                posY = np.multiply(effectivePointCloud[0,:], np.cos(effectivePointCloud[1,:]))
-                
-                return posX, posY
-
-def LiveClustering(pointsX, pointsY):
-    
-    #initialize constraints/variables
-    minClusterSize = 15
-    xMean = np.array([])
-    yMean = np.array([])
-    
-    if len(pointsX) >= minClusterSize:
-
-        clusterer = DBSCAN(eps=0.5, min_samples=20)
+    targetListDataLength = tlvLength - tlvHeaderLengthInBytes
+    if tlvType.size > 0 and tlvType == 7: #target List TLV
         
-        clusterer.fit(pd.DataFrame(np.transpose(np.array([pointsX,pointsY]))).values)
+        numberOfTargets = targetListDataLength/targetLengthInBytes
+        TID = np.zeros((1, int(numberOfTargets[0])), dtype = np.uint32) #tracking IDs
+        kinematicData = np.zeros((6, int(numberOfTargets[0])), dtype = np.single)
+        errorCovariance = np.zeros((9, int(numberOfTargets[0])), dtype = np.single)
+        gatingGain = np.zeros((1, int(numberOfTargets[0])), dtype = np.single)
+        
+        #increment the index so it is possible to read the target list
+        targetIndex = 0
+        while targetIndex != int(numberOfTargets[0]):
+            TID[0][targetIndex] = data[index[0]:index[0]+4].view(dtype=np.uint32)
+            kinematicData[:,targetIndex] = data[index[0]+4:index[0]+28].view(dtype=np.single)
+            errorCovariance[:,targetIndex] = data[index[0]+28:index[0]+64].view(dtype=np.single)
+            gatingGain[:,targetIndex] = data[index[0]+64:index[0]+68].view(dtype=np.single)
+            index += targetLengthInBytes
+            targetIndex += 1
+            
+        targetDict['TID'] = TID
+        targetDict['kinematicData'] = kinematicData
+        targetDict['errorCovariance'] = errorCovariance
+        targetDict['gatingGain'] = gatingGain
+    
+    return pointCloud, targetDict
 
-        if clusterer.core_sample_indices_.size > 0:
-            #array that contains the x,y positions and the cluster association number
-            clusters = np.array([pointsX[clusterer.core_sample_indices_],
-                      pointsY[clusterer.core_sample_indices_], 
-                     clusterer.labels_[clusterer.core_sample_indices_]])
-            for centroidNumber in np.unique(clusters[2,:]):
-                xMean = np.append(xMean, np.mean(clusters[0,:][np.isin(clusters[2,:], centroidNumber)]))
-                yMean = np.append(yMean, np.mean(clusters[1,:][np.isin(clusters[2,:], centroidNumber)]))
-                
+def parsePointCloud(pointCloud): #remove points that are not within the boundary
+    
+    effectivePointCloud = np.array([])
+    
+    for index in range(0, len(pointCloud[0,:])):
+        if (pointCloud[0,index] > 1 and pointCloud[0,index] < 6) \
+        and (pointCloud[1, index] > -50*np.pi/180 \
+            and pointCloud[1, index] < 50*np.pi/180):
 
+            #concatenate columns to the new point cloud
+            if len(effectivePointCloud) == 0:
+                effectivePointCloud = np.reshape(pointCloud[:, index], (4,1), order="F")
+            else:
+                point = np.reshape(pointCloud[:, index], (4,1),order="F")
+                effectivePointCloud = np.hstack((effectivePointCloud, point))
 
-    return yMean, xMean
+    if len(effectivePointCloud) != 0:
+        posX = np.multiply(effectivePointCloud[0,:], np.sin(effectivePointCloud[1,:]))
+        posY = np.multiply(effectivePointCloud[0,:], np.cos(effectivePointCloud[1,:]))
+        SNR  = effectivePointCloud[3,:]
+    
+        return posX,posY,SNR
+
+def iterativeDfs(vertexID, edgeMatrix, startNode):
+    
+    visited = np.array([], dtype=np.int)
+    dfsStack = np.array([startNode])
+
+    while dfsStack.size > 0:
+        vertex, dfsStack = dfsStack[-1], dfsStack[:-1] #equivalent to stack pop function
+        if vertex not in visited:
+            #find unvisited nodes
+            unvisitedNodes = vertexID[np.logical_not(np.isnan(edgeMatrix[int(vertex), :]))]
+            visited = np.append(visited, vertex)
+            #add unvisited nodes to the stack
+            dfsStack = np.append(dfsStack, unvisitedNodes[np.logical_not(np.isin(unvisitedNodes,visited))])
+    
+    return visited
+
+def TreeClustering(posX, posY, SNR, weightThreshold, minClusterSize):
+    
+    vertexID = np.arange(len(posX))
+    vertexList = np.arange(len(posX))
+
+    associatedPoints = np.array([])
+
+    if len(posX) >= minClusterSize:
+        edgeMatrix = np.zeros((len(posX), len(posY)))
+
+        #create distance matrix
+        #x1 - x0
+        xDifference = np.subtract(np.repeat(posX, repeats=len(posX)).reshape(len(posX), len(posX)), 
+                                  np.transpose(np.repeat(posX, repeats=len(posX)).reshape(len(posX), len(posX))))
+        #y1 - y0
+        yDifference = np.subtract(np.repeat(posY, repeats=len(posY)).reshape(len(posY), len(posY)), 
+                                  np.transpose(np.repeat(posY, repeats=len(posY)).reshape(len(posY), len(posY))))
+        #euclidean distance calculation
+        edgeMatrix = np.sqrt(np.add(np.square(xDifference), np.square(yDifference)))
+
+        #weight based reduction of graph/remove edges by replacing edge weight by np.NaN
+        weightMask = np.logical_or(np.greater(edgeMatrix,weightThreshold), np.equal(edgeMatrix, 0))
+        edgeMatrix[weightMask] = np.NaN
+
+        #perform iterative dfs
+        associatedPoints = np.array([])
+        
+        
+        centroidNumber = 0
+        while vertexID.size > 0:
+            startNode = vertexID[0]
+            visited = iterativeDfs(vertexList, edgeMatrix, startNode)
+            #remove visited nodes (ie only slice off all unvisited nodes)
+            vertexID = vertexID[np.logical_not(np.isin(vertexID, visited))]
+#             #visited is a component, extract cluster from it if possible
+            if visited.size >= minClusterSize:
+                cluster =  np.array([posX[visited], posY[visited],SNR[visited],
+                                     np.repeat(centroidNumber, repeats=len(visited))])
+                if associatedPoints.size == 0:
+                    associatedPoints = cluster
+                else:
+                    associatedPoints = np.hstack((associatedPoints, cluster))
+                centroidNumber += 1
+
+    return associatedPoints
 
 def predict(x, P, A, Q): #predict function
     xpred = np.matmul(A,x)
@@ -206,29 +221,34 @@ def data_associate(centroidPred, rthetacentroid):
 
     return(currentFrame)
 
-def LiveRKF(currentrawxycentroidData, centroidX, centroidP):
+def LiveRKF(currentrawxycentroidData, centroidX, centroidP, Q, R, isFirst):
+    
     
     #initialise matrices 
     delT = 0.0500
     A = np.array([[1,delT,0,0], 
-                  [0,1,0,0], 
+                  [0,1  ,0,0], 
                   [0,0,1,delT], 
                   [0,0,0,1]])
     H = np.array([[1,0,0,0],
                   [0,0,1,0]])
     P = np.identity(4)
-    Q = np.multiply(0.9,np.identity(4))
-    R = np.array([[1],[1]])
 
     xytransposecentroidData = currentrawxycentroidData
     rthetacentroidData=xytransposecentroidData
     if (xytransposecentroidData.size != 0): 
         [rthetacentroidData[0,:],rthetacentroidData[1,:]] = cart2pol(xytransposecentroidData[0,:],xytransposecentroidData[1,:])
+    if(isFirst):
+        centroidX[[0,2],0] = rthetacentroidData[[0,1],0]
+        isFirst = 0
     if((rthetacentroidData.size != 0)):
         currentFrame = data_associate(centroidX, rthetacentroidData)
         addittionalCentroids = (np.size(rthetacentroidData,1)-np.size(centroidX,1))
         if(addittionalCentroids>0):
-            centroidX = np.pad(centroidX, ((0,0),(0,addittionalCentroids)), 'constant') #initialises previous iteration to zer
+            truncateCurrentFrame = currentFrame[:,np.size(centroidX,1):np.size(currentFrame,1)]
+            zeroTemplate = np.zeros((4,np.size(truncateCurrentFrame,1)),dtype=truncateCurrentFrame.dtype)
+            zeroTemplate[[0,2],:] = truncateCurrentFrame[[0,1],:]
+            centroidX = np.hstack((centroidX,zeroTemplate))
             for newFrameIndex in list((range(0, addittionalCentroids))):
                 centroidP.extend([P])
         for currentFrameIndex in list((range(0,np.size(currentFrame,1)))):
@@ -241,51 +261,131 @@ def LiveRKF(currentrawxycentroidData, centroidX, centroidP):
     else:
         for noFrameIndex in list((range(0,np.size(centroidX,1)))):
             [centroidX[:,noFrameIndex], centroidP[noFrameIndex]] = predict(centroidX[:,noFrameIndex], centroidP[noFrameIndex], A, Q)
-            
     #centroidX is 4xN array that contains that centroid information for that frame
-    return centroidX, centroidP
+    return centroidX, centroidP,isFirst
+
 
 def main():
+    
     #set up plottig GUI
     app = QtGui.QApplication([])
-    pg.setConfigOption('background','w')  
-
+    pg.setConfigOption('background','w')
+    
     win = pg.GraphicsWindow(title="Occupancy Detection GUI")
     plot1 = win.addPlot()
     plot1.setXRange(-6,6)
     plot1.setYRange(0,6)
     plot1.setLabel('left',text = 'Y position (m)')
     plot1.setLabel('bottom', text= 'X position (m)')
-    s1 = plot1.plot([],[],pen=None,symbol='x')
-    occupancyEstimate = win.addLabel(text="Occupancy Estimate: 0") 
+    s1 = plot1.plot([],[],pen=None,symbol='o')
+    plot2 = win.addPlot()
+    plot2.setXRange(-6,6)
+    plot2.setYRange(0,6)
+    plot2.setLabel('left',text = 'Y position (m)')
+    plot2.setLabel('bottom', text= 'X position (m)')
+    s2 = plot2.plot([],[],pen=None,symbol='o')
 
-    parsingMatFile = '/home/pi/Desktop/OccupancyDetection/Data/Matlab Data/3PeopleWalking.mat'
+    parsingMatFile = 'C:\\Users\\hasna\\Documents\\GitHub\\OccupancyDetection\\Data\\Experiment Data 2\\3PeopleWalking.mat'
     tlvData = (loadmat(parsingMatFile))['tlvStream'][0]
 
+    #RKF 
     centroidX =np.zeros((4,1))
     centroidP = []
-    P = np.identity(4);
+    P = np.identity(4)
     centroidP.extend([P])
+    Q = np.multiply(0.2,np.identity(4))
+    R = np.multiply(5,np.array([[1],[1]]))
+    #tree based
+    weightThresholdIntial = 0.2 #minimum distance between points
+    minClusterSizeInitial = 10
+    weightThresholdFinal = 0.8 #minimum distance between points
+    minClusterSizeFinal = 8 
+
+    #zone snr
+    snrFirstZone = 10
+    snrMiddleZone = 15
+    snrLastZone = 5
+
+    tlvHeaderLengthInBytes = 8
+    pointLengthInBytes = 16
+    targetLengthInBytes = 68
+
+    tiPosX = np.array([])
+    tiPosY = np.array([])
+
+    isFirst = 1
 
     for tlvStream in tlvData:
-        #parse
-        posX, posY = LiveParsing(tlvStream)
-        #cluster
-        yMean, xMean = LiveClustering(posX, posY)
-        centroidData = np.array([xMean, yMean])
-        #track
-        centroidX, centroidP = LiveRKF(centroidData, centroidX, centroidP)
-        #plot
-        #calculate x and y positions
-        xPositions = np.multiply(centroidX[0,:], np.cos(centroidX[2,:]))
-        yPositions = np.multiply(centroidX[0,:], np.sin(centroidX[2,:]))
-        numberOfTargets = len(xPositions)
-        #s1.setData(xPositions, yPositions)
-        #message = "Occupancy Estimate: " + str(numberOfTargets)
-        #win.removeItem(occupancyEstimate)
-        #occupancyEstimate = win.addLabel(text=message)
-        #QtGui.QApplication.processEvents() 
-        #time.sleep(0.1)
-    
 
+        #parsing
+        pointCloud, targetDict = tlvParsing(tlvStream, tlvHeaderLengthInBytes, pointLengthInBytes, targetLengthInBytes)
+
+        if pointCloud.size > 0:
+            posX,posY,SNR = parsePointCloud(pointCloud) #dictionary that contains the point cloud data
+            #initial noise reduction
+            clusters = TreeClustering(posX, posY, SNR,weightThresholdIntial, minClusterSizeInitial)
+
+            if clusters.size > 0:
+
+
+    #             row 1 - x
+    #             row 2 - y
+    #             row 3 - SNR
+    #             row 4 - cluster number
+
+    #             snr zone snr test
+    #             4.5 to the end -> last zone
+    #             3-4.5m -> middle zone
+    #             1-3m -> first zone
+                snrMask_LastZone = np.logical_and(np.greater(clusters[1,:], 4.5), np.greater(clusters[2,:], snrLastZone)) #zone 4.5m and greater
+                snrMask_MiddleZone = np.logical_and(np.logical_and(np.greater(clusters[1,:], 3), np.less_equal(clusters[1,:], 4.5)), 
+                                                    np.greater(clusters[2,:], snrMiddleZone)) #zone 3-4.5m with SNR > 20
+                snrMask_FirstZone = np.logical_and(np.less_equal(clusters[1,:], 3), np.greater(clusters[2,:], snrFirstZone))
+                overallSnrMask = np.logical_or(np.logical_or(snrMask_FirstZone,snrMask_MiddleZone), snrMask_LastZone)
+
+                snrFilteredClusters = clusters[:,overallSnrMask]
+
+                if snrFilteredClusters.size > 0:
+    #                 s2.setData(snrFilteredClusters[0,:], snrFilteredClusters[1,:])
+
+                    dbClusters = TreeClustering(snrFilteredClusters[0,:], snrFilteredClusters[1,:], 
+                                                    snrFilteredClusters[2,:], 
+                                                    weightThresholdFinal, minClusterSizeFinal)
+                    if dbClusters.size > 0:
+                        #row 1 - x
+                        #row 2 - y
+                        #row 3 - cluster number
+                        k = int(max(dbClusters[3,:])) + 1 
+                        points = np.transpose(np.array([dbClusters[0,:], dbClusters[1,:]]))
+
+                        #kmeans 
+                        centroidClusterer = KMeans(n_clusters= k).fit(points)
+                        centroidData = np.array([centroidClusterer.cluster_centers_[:,0], centroidClusterer.cluster_centers_[:,1]])
+
+                        #tracking
+                        centroidX, centroidP,isFirst = LiveRKF(centroidData, centroidX, centroidP, Q, R, isFirst)
+                        #plot
+                        #calculate x and y positions
+                        xPositions = np.multiply(centroidX[0,:], np.cos(centroidX[2,:]))
+                        yPositions = np.multiply(centroidX[0,:], np.sin(centroidX[2,:]))
+
+                        s1.setData(xPositions, yPositions)
+
+
+        if len(targetDict) != 0:
+            #kinematic data object structure
+            #row 0 - posX
+            #row 1 - posY 
+            #row 2 - velX
+            #row 3 - velY
+            #row 4 - accX
+            #row 5 - accY
+            tiPosX = targetDict['kinematicData'][0,:]
+            tiPosY = targetDict['kinematicData'][1,:]
+            s2.setData(tiPosX,tiPosY)
+
+        QtGui.QApplication.processEvents()
+        time.sleep(0.05)
+        
+        
 main()
