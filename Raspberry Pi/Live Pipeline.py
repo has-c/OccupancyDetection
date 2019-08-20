@@ -5,7 +5,7 @@ import pandas as pd
 #pyqtgraph -> fast plotting
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtGui
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import KMeans
 import copy
 
 def validateChecksum(recieveHeader):
@@ -411,8 +411,7 @@ def main():
                 rawData = Dataport.read(dataLength)
                 data = np.frombuffer(rawData, dtype='uint8')
 
-                pointCloud, targetDict = tlvParsing(
-                    data, dataLength, tlvHeaderLengthInBytes, pointLengthInBytes, targetLengthInBytes)
+                pointCloud, targetDict = tlvParsing(data, tlvHeaderLengthInBytes, pointLengthInBytes, targetLengthInBytes)
 
                 #target
                 if len(targetDict) != 0:
@@ -421,7 +420,7 @@ def main():
                     s1.setData(targetX, targetY)
 
                 #pointCloud
-                if not(pointCloud is None):
+                if pointCloud.size > 0:
                     #constrain point cloud to within the effective sensor range
                     #range 1 < x < 6
                     #azimuth -50 deg to 50 deg
@@ -445,7 +444,8 @@ def main():
                         posX = np.multiply(effectivePointCloud[0, :], np.sin(effectivePointCloud[1, :]))
                         posY = np.multiply(effectivePointCloud[0, :], np.cos(effectivePointCloud[1, :]))
                         SNR = effectivePointCloud[3, :]
-                        clusters = TreeClustering(posX, posY, SNR, weightThresholdIntial, minClusterSizeInitial)
+                        clusters = np.array([posX, posY, SNR])
+#                        clusters = TreeClustering(posX, posY, SNR, weightThresholdIntial, minClusterSizeInitial)
 
                         if clusters.size > 0:
 
@@ -493,7 +493,7 @@ def main():
                                         centroidX[0, :], np.cos(centroidX[2, :]))
                                     yPositions = np.multiply(
                                         centroidX[0, :], np.sin(centroidX[2, :]))
-
+#
                                     s2.setData(xPositions, yPositions)
                                     QtGui.QApplication.processEvents()
 
@@ -520,3 +520,4 @@ def main():
 
 
 main()
+top

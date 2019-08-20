@@ -285,7 +285,7 @@ def main():
     plot2.setLabel('bottom', text= 'X position (m)')
     s2 = plot2.plot([],[],pen=None,symbol='o')
 
-    parsingMatFile = 'C:\\Users\\hasna\\Documents\\GitHub\\OccupancyDetection\\Data\\Experiment Data 2\\3PeopleWalking.mat'
+    parsingMatFile = '/home/pi/Desktop/OccupancyDetection/Data/Experiment Data 2/3PeopleWalking.mat'
     tlvData = (loadmat(parsingMatFile))['tlvStream'][0]
 
     #RKF 
@@ -385,7 +385,7 @@ def main():
             s2.setData(tiPosX,tiPosY)
 
         QtGui.QApplication.processEvents()
-        time.sleep(0.05)
+        
         
         
 main()
