@@ -326,9 +326,10 @@ def main():
 
     # Set the plot
     pg.setConfigOption('background', 'w')
+    pg.setConfigOption('foreground', 'k')
     win = pg.GraphicsWindow(title="Testing GUI")
-    p1 = win.addPlot()
-    p2 = win.addPlot()
+    p1 = win.addPlot(title = "TI's Algorithim", row=1,col=0)
+    p2 = win.addPlot(title = "Project 16", row=1,col=1)
     p1.setXRange(-6, 6)
     p1.setYRange(0, 6)
     p1.setLabel('left', text='Y position (m)')
@@ -338,7 +339,8 @@ def main():
     p2.setLabel('left', text='Y position (m)')
     p2.setLabel('bottom', text='X position (m)')
     s1 = p1.plot([], [], pen=None, symbol='o')
-    s2 = p2.plot([], [], pen=None, symbol='o')
+    s2 = p2.plot([], [], pen=None, symbolBrush = (119,0,255), symbol='s', symbolSize=20)
+    occupancyEstimate = win.addLabel("Occupancy  Estimate:0",row=0,col=1, size='20pt', bold=True, color='FF0000')
 
     #tracking variables
     centroidX = np.zeros((4, 1))
@@ -405,7 +407,7 @@ def main():
                     break
 
             dataLength = int(headerContent['packetLength'] - frameHeaderLength)
-
+            
             if dataLength > 0:
                 #read the rest of the packet
                 rawData = Dataport.read(dataLength)
@@ -417,8 +419,10 @@ def main():
                 if len(targetDict) != 0:
                     targetX = targetDict['kinematicData'][0, :]
                     targetY = targetDict['kinematicData'][1, :]
+                    print(targetY)
                     s1.setData(targetX, targetY)
-
+#                    QtGui.QApplication.processEvents()
+                                            
                 #pointCloud
                 if pointCloud.size > 0:
                     #constrain point cloud to within the effective sensor range
@@ -444,8 +448,8 @@ def main():
                         posX = np.multiply(effectivePointCloud[0, :], np.sin(effectivePointCloud[1, :]))
                         posY = np.multiply(effectivePointCloud[0, :], np.cos(effectivePointCloud[1, :]))
                         SNR = effectivePointCloud[3, :]
-                        clusters = np.array([posX, posY, SNR])
-#                        clusters = TreeClustering(posX, posY, SNR, weightThresholdIntial, minClusterSizeInitial)
+#                        clusters = np.array([posX, posY, SNR])
+                        clusters = TreeClustering(posX, posY, SNR, weightThresholdIntial, minClusterSizeInitial)
 
                         if clusters.size > 0:
 
@@ -489,14 +493,29 @@ def main():
                                         centroidData, centroidX, centroidP, Q, R, isFirst)
                                     #plot
                                     #calculate x and y positions
+                                    plotCentroidX = centroidX[:,np.logical_and((np.logical_and(centroidX[0,:]<6,centroidX[0,:]>1)), np.logical_and(centroidX[2,:]<2.2689,centroidX[2,:]>0.925))]
                                     xPositions = np.multiply(
-                                        centroidX[0, :], np.cos(centroidX[2, :]))
+                                        plotCentroidX[0, :], np.cos(plotCentroidX[2, :]))
                                     yPositions = np.multiply(
-                                        centroidX[0, :], np.sin(centroidX[2, :]))
+                                        plotCentroidX[0, :], np.sin(plotCentroidX[2, :]))
 #
+                                    
                                     s2.setData(xPositions, yPositions)
+                                    numberOfTargets = len(xPositions)
+                                    message = "Occupancy Estimate: " + str(numberOfTargets)
+                                    win.removeItem(occupancyEstimate)
+                                    occupancyEstimate = win.addLabel(message, row=0,col=1, size='20pt', bold=True, color='FF0000')
                                     QtGui.QApplication.processEvents()
-
+                else:
+                    centroidData = np.array([])
+                    centroidX, centroidP, isFirst = LiveRKF(centroidData, centroidX, centroidP, Q, R, isFirst)
+                    xPositions = np.multiply(centroidX[0, :], np.cos(centroidX[2, :]))
+                    yPositions = np.multiply(centroidX[0, :], np.sin(centroidX[2, :]))
+                    s2.setData(xPositions, yPositions)
+                    QtGui.QApplication.processEvents()
+                    
+                    
+                
         while lostSync:
             for rxIndex in range(0, 8):
                 rxByte = Dataport.read(1)
@@ -520,4 +539,4 @@ def main():
 
 
 main()
-top
+topa

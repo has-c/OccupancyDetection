@@ -382,6 +382,7 @@ def main():
             #row 5 - accY
             tiPosX = targetDict['kinematicData'][0,:]
             tiPosY = targetDict['kinematicData'][1,:]
+            print(tiPosY)
             s2.setData(tiPosX,tiPosY)
 
         QtGui.QApplication.processEvents()
