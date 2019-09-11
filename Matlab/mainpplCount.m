@@ -410,9 +410,9 @@ while(isvalid(hDataSerialPort))
 %            ylim([0 6]);
 %            xlabel('x Position');
 %            ylabel('y Position');
-           
-           
-           
+%            
+%            
+%            
 %        end
 
     end
