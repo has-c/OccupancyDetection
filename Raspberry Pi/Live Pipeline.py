@@ -358,9 +358,9 @@ def main():
     minClusterSizeFinal = 8
 
     #zone snr
-    snrFirstZone = 10
-    snrMiddleZone = 15
-    snrLastZone = 5
+    snrFirstZone = 340
+    snrMiddleZone = 140
+    snrLastZone = 50
 
     tlvHeaderLengthInBytes = 8
     pointLengthInBytes = 16
