@@ -113,78 +113,83 @@ def LiveClustering(pointsX, pointsY):
 
     return yMean, xMean
 
+#Functions adapted from Ian Reid's Estimation II: Discrete Kalman Filter (In Compendium)
 def predict(x, P, A, Q): #predict function
-    xpred = np.matmul(A,x)
-    Ppred = np.matmul(A,P)
+    xpred = np.matmul(A,x)#Predict usng system matrix and system variables
+    Ppred = np.matmul(A,P)#Error covariance prediction
     Ppred = np.matmul(Ppred,np.transpose(A)) + Q
     return(xpred, Ppred)
 
-def innovation(xpred, Ppred, z, H, R): #innovation function
-    nu = z - np.matmul(H,xpred)
-    S = np.matmul(H,Ppred)
+def innovation(xpred, Ppred, z, H, R): #innovation function (splits update function in two essentially)
+    nu = z - np.matmul(H,xpred)#difference between measured and prediction
+    S = np.matmul(H,Ppred)#innovation covariance computation
     S = R + np.matmul(S, np.transpose(H))
     return(nu, S)
 
-def innovation_update(xpred, Ppred, nu, S, H):
+def innovation_update(xpred, Ppred, nu, S, H):#kalman update funciton
     K = np.matmul(Ppred, np.transpose(H))
-    K = np.matmul(K,np.linalg.inv(S)) #check inverse function
+    K = np.matmul(K,np.linalg.inv(S)) #Recurisve computation of new kalman gain
     xnew = xpred + np.matmul(K,nu)
-    Pnew = np.matmul(K,S)
+    Pnew = np.matmul(K,S)#Calculate new error covairance matrix
     Pnew = Ppred - np.matmul(Pnew,np.transpose(K)) 
     return(xnew, Pnew)
 
-def cart2pol(x, y):
-    rho = np.sqrt(x**2 + y**2)
-    phi = np.arctan2(y, x)
+def cart2pol(x, y):#converts cartesian to polar cooridnates 
+    rho = np.sqrt(x**2 + y**2)#radial component
+    phi = np.arctan2(y, x)#theta component
     return(rho, phi)
 
-def data_associate(centroidPred, rthetacentroid):
-    rthetacentroidCurrent = rthetacentroid
+def data_associate(centroidPred, rthetacentroid): #inputs: new measurement and previous measurement
+    rthetacentroidCurrent = rthetacentroid #initialise temp arrays
     centpredCol = np.size(centroidPred,1)
     rthetaCol = np.size(rthetacentroid,1)
 
     for i in list(range(0,centpredCol)):
-        r1 = centroidPred[0][i]
-        r2 = rthetacentroid[0]
+        r1 = centroidPred[0][i] #extract preivous radial measurement for each centroid per loop
+        r2 = rthetacentroid[0] #extract all new radial measurements
         theta1 = centroidPred[2][i]
         theta2 = rthetacentroid[1]
+         #calculate euclidian distance between each previous measurement and all new measurements
         temp = np.sqrt(np.multiply(r1,r1) + np.multiply(r2,r2) - np.multiply(np.multiply(np.multiply(2,r1),r2),np.cos(theta2-theta1)))
         if(i==0):
             minDist = temp
         else:
-            minDist = np.vstack((minDist,temp))
+            minDist = np.vstack((minDist,temp)) #store distance matrix 
 
-    currentFrame = np.empty((2,max(centpredCol,rthetaCol)))
+    currentFrame = np.empty((2,max(centpredCol,rthetaCol))) #initialise frame for current frame's centroids
     currentFrame[:] = np.nan
 
     minDist = np.reshape(minDist, (centpredCol,rthetaCol))
-    minDistOrg = minDist
+    minDistOrg = minDist #store distance matrix in an array for reference as minDist will be modified as associated
 
-    for i in list(range(0,min(centpredCol,rthetaCol))):
+    for i in list(range(0,min(centpredCol,rthetaCol))): #loop through the minimum number of centroids using GNN approach
         if((np.ndim(minDist)) == 1):
             minDist = np.reshape(minDist,(rthetaCol,1))
             minDistOrg = np.reshape(minDistOrg,(rthetaCol,1))
-        val = np.min(minDist)
+        val = np.min(minDist) #extract smallest distance
         resultOrg = np.argwhere(minDistOrg == val)
-        result = np.argwhere(minDist == val)
-        minRowOrg = resultOrg[0][0]
+        result = np.argwhere(minDist == val)  #find new indicies of minimum distance in minDist
+        minRowOrg = resultOrg[0][0] #extract original and new distance matrix indicies
         minColOrg = resultOrg[0][1]
         minRow = result[0][0]
         minCol = result[0][1]
-        currentFrame[:,minRowOrg] = rthetacentroid[:,minColOrg]
-        minDist = np.delete(minDist,minRow,0)
+        currentFrame[:,minRowOrg] = rthetacentroid[:,minColOrg] #extract centroid associated with minimum distnace
+        minDist = np.delete(minDist,minRow,0) #delete from the modified minimum distance so it is not associated again
         minDist = np.delete(minDist,minCol,1)
         rthetacentroidCurrent = np.delete(rthetacentroidCurrent,minCol,1)
 
     index = 0
-    if (rthetacentroidCurrent.size != 0): #check indexing
+    if (rthetacentroidCurrent.size != 0): #Check if centroids left unassociated
         for i in list(range(centpredCol,rthetaCol)):
-            currentFrame[:,i] = rthetacentroidCurrent[:,index]
+            currentFrame[:,i] = rthetacentroidCurrent[:,index]#Add to new centriods (unnasociated)
             index += 1 
 
     return(currentFrame)
 
 def LiveRKF(currentrawxycentroidData, centroidX, centroidP):
+   #centroidX is 4xN array that contains that centroid information for that frame
+    #currentrawxycentroidData:new measured data
+    #centroidP : error covariance amtrix
     
     #initialise matrices 
     delT = 0.0500
@@ -200,24 +205,29 @@ def LiveRKF(currentrawxycentroidData, centroidX, centroidP):
 
     xytransposecentroidData = currentrawxycentroidData
     rthetacentroidData=xytransposecentroidData
-    if (xytransposecentroidData.size != 0): 
+    if (xytransposecentroidData.size != 0): #convert from cartesian to polar coordinates 
         [rthetacentroidData[0,:],rthetacentroidData[1,:]] = cart2pol(xytransposecentroidData[0,:],xytransposecentroidData[1,:])
-    if((rthetacentroidData.size != 0)):
-        currentFrame = data_associate(centroidX, rthetacentroidData)
-        addittionalCentroids = (np.size(rthetacentroidData,1)-np.size(centroidX,1))
-        if(addittionalCentroids>0):
+    if((rthetacentroidData.size != 0)):#if there are meausred centroids in current frame
+        currentFrame = data_associate(centroidX, rthetacentroidData) #Data Association performed
+        addittionalCentroids = (np.size(rthetacentroidData,1)-np.size(centroidX,1)) #How many new centroids/occupants
+        if(addittionalCentroids>0): #If new centroids: Create new matrices/columns in centriods matrix, covariance matrix etc
             centroidX = np.pad(centroidX, ((0,0),(0,addittionalCentroids)), 'constant') #initialises previous iteration to zer
             for newFrameIndex in list((range(0, addittionalCentroids))):
-                centroidP.extend([P])
-        for currentFrameIndex in list((range(0,np.size(currentFrame,1)))):
-            if(not(np.isnan(currentFrame[0,currentFrameIndex]))):
+                centroidP.extend([P]) #create new covariance matrix
+        for currentFrameIndex in list((range(0,np.size(currentFrame,1)))): #loop through current frame of centroids
+            if(not(np.isnan(currentFrame[0,currentFrameIndex]))): #if not empty
+                #step1: Kalman prediction
                 [xpred, Ppred] = predict(centroidX[:,currentFrameIndex], centroidP[currentFrameIndex], A, Q)
+                #Kalman innovation
                 [nu, S] = innovation(xpred, Ppred, currentFrame[:, currentFrameIndex], H, R)
+                #Kalman update 
                 [centroidX[:,currentFrameIndex],  centroidP[currentFrameIndex]] = innovation_update(xpred, Ppred, nu, S, H)
             else:
+                #predict using preious measurements
                 [centroidX[:,currentFrameIndex], centroidP[currentFrameIndex]] = predict(centroidX[:,currentFrameIndex], centroidP[currentFrameIndex], A, Q)                   
-    else:
+    else:#if new meausred frame has no data
         for noFrameIndex in list((range(0,np.size(centroidX,1)))):
+            #Only kalman predict step
             [centroidX[:,noFrameIndex], centroidP[noFrameIndex]] = predict(centroidX[:,noFrameIndex], centroidP[noFrameIndex], A, Q)
             
     #centroidX is 4xN array that contains that centroid information for that frame
