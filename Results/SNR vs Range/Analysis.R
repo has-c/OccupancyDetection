@@ -20,4 +20,4 @@ summary(snrRange.fit)
 
 #find confidence interval of various 
 predDf <- data.frame(Range = c(1,3,5))
-predict(snrRange.fit, predDf, interval = "confidence")
+exp(predict(snrRange.fit, predDf, interval = "confidence"))
