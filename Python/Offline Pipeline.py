@@ -157,25 +157,27 @@ def TreeClustering(posX, posY, SNR, weightThreshold, minClusterSize):
     return associatedPoints
 
 #Functions adapted from Ian Reid's Estimation II: Discrete Kalman Filter (In Compendium)
-def predict(x, P, A, Q): #predict function
-    xpred = np.matmul(A,x) #Predict usng system matrix and system variables
-    Ppred = np.matmul(A,P) #Error covariance prediction
-    Ppred = np.matmul(Ppred,np.transpose(A)) + Q
-    return(xpred, Ppred)
 
-def innovation(xpred, Ppred, z, H, R): #innovation function (splits update function in two essentially)
-    nu = z - np.matmul(H,xpred) #difference between measured and prediction
-    S = np.matmul(H,Ppred) #innovation covariance computation
-    S = R + np.matmul(S, np.transpose(H))
-    return(nu, S)
+def kalmanPredictionStep(stateVariables, covarianceMatrix, systemMatrix, systemCovariance): #predict function
+    predictionState = np.matmul(systemMatrix,stateVariables) #Predict usng system matrix and system variables
+    predictionCovariance = np.matmul(systemMatrix,covarianceMatrix) #Error covariance prediction
+    predictionCovariance = np.matmul(predictionCovariance,np.transpose(systemMatrix)) + systemCovariance
+    return(predictionState, predictionCovariance)
 
-def innovation_update(xpred, Ppred, nu, S, H): #kalman update funciton
-    K = np.matmul(Ppred, np.transpose(H))
-    K = np.matmul(K,np.linalg.inv(S)) #Recurisve computation of new kalman gain
-    xnew = xpred + np.matmul(K,nu)
-    Pnew = np.matmul(K,S) #Calculate new error covairance matrix
-    Pnew = Ppred - np.matmul(Pnew,np.transpose(K)) 
-    return(xnew, Pnew)
+
+def kalmanInnovationStep(predictionState, predictionCovariance, newMeasurement, outputMatrix, measurementCovariance): #innovation function (splits update function in two essentially)
+    innovationDifference = newMeasurement - np.matmul(outputMatrix,predictionState) #difference between measured and prediction
+    innovationOutput = np.matmul(outputMatrix,predictionCovariance) #innovation covariance computation
+    innovationOutput = measurementCovariance + np.matmul(innovationOutput, np.transpose(outputMatrix))
+    return(innovationDifference, innovationOutput)
+
+def kalmanInnovationUpdate(predictionState, predictionCovariance, innovationDifference,innovationOutput, outputMatrix): #kalman update funciton
+    kalmanGain = np.matmul(predictionCovariance, np.transpose(outputMatrix))
+    kalmanGain = np.matmul(kalmanGain,np.linalg.inv(innovationOutput)) #Recurisve computation of new kalman gain
+    newStatePrediction = predictionState + np.matmul(kalmanGain,innovationDifference)
+    newPredictionCovariance = np.matmul(kalmanGain,innovationOutput) #Calculate new error covairance matrix
+    newPredictionCovariance = predictionCovariance - np.matmul(newPredictionCovariance,np.transpose(kalmanGain)) 
+    return(newStatePrediction, newPredictionCovariance)
 
 def cart2pol(x, y): #converts cartesian to polar cooridnates 
     rho = np.sqrt(x**2 + y**2) #radial component
@@ -265,18 +267,18 @@ def LiveRKF(currentrawxycentroidData, centroidX, centroidP, Q, R, isFirst):
         for currentFrameIndex in list((range(0,np.size(currentFrame,1)))): #loop through current frame of centroids
             if(not(np.isnan(currentFrame[0,currentFrameIndex]))): #if not empty
                 #step1: Kalman prediction
-                [xpred, Ppred] = predict(centroidX[:,currentFrameIndex], centroidP[currentFrameIndex], A, Q)
+                [predictionState, predictionCovariance] = kalmanPredictionStep(centroidX[:,currentFrameIndex], centroidP[currentFrameIndex], A, Q)
                 #Kalman innovation
-                [nu, S] = innovation(xpred, Ppred, currentFrame[:, currentFrameIndex], H, R)
+                [innovationDifference, innovationOutput] = kalmanInnovationStep(predictionState, predictionCovariance, currentFrame[:, currentFrameIndex], H, R)
                 #Kalman update 
-                [centroidX[:,currentFrameIndex],  centroidP[currentFrameIndex]] = innovation_update(xpred, Ppred, nu, S, H)
+                [centroidX[:,currentFrameIndex],  centroidP[currentFrameIndex]] = kalmanInnovationUpdate(predictionState, predictionCovariance, innovationDifference, innovationOutput, H)
             else: #if new meausred frame has no data
                 #predict using preious measurements
-                [centroidX[:,currentFrameIndex], centroidP[currentFrameIndex]] = predict(centroidX[:,currentFrameIndex], centroidP[currentFrameIndex], A, Q)                   
+                [centroidX[:,currentFrameIndex], centroidP[currentFrameIndex]] = kalmanPredictionStep(centroidX[:,currentFrameIndex], centroidP[currentFrameIndex], A, Q)                   
     else:#if new measured frame has no data
         for noFrameIndex in list((range(0,np.size(centroidX,1)))):
-            #Only kalman predict step
-            [centroidX[:,noFrameIndex], centroidP[noFrameIndex]] = predict(centroidX[:,noFrameIndex], centroidP[noFrameIndex], A, Q)
+           #Only kalman predict step
+            [centroidX[:,noFrameIndex], centroidP[noFrameIndex]] = kalmanPredictionStep(centroidX[:,noFrameIndex], centroidP[noFrameIndex], A, Q)
  #centroidX is 4xN array that contains that centroid information for that frame
     return centroidX, centroidP,isFirst
 
