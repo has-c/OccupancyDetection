@@ -1,2 +1,6 @@
 # OccupancyDetection
-Room Occupancy Detection using mmWave technology
+This study was conducted from Feb 2019 to Nov 2019 at the University of Auckland under supervision by Dr Sing Kiong Nguang.
+
+In this  study,  we propose  an accurate and portable real-time occupancy detection system for indoor  spaces. The systemis based on millimetre  wave radar because of  its  non-intrusive   characteristics and  high  accuracy. Moreover,  development  of  the  system  has occurred on  the Raspberry Pi  4,  an embedded  platform  for  scalability  and portability.  The  software pipeline  consists of adensity-based clustering  algorithm  to identify  people,  coupled with a Kalman filter  to track people.  The  proposed  system  has been evaluated  in  various  room  settings  and  scenarios. Experimental  results  were compared  to  the  commercially  availableTexas Instruments  occupancy  detection  system. The  experimental accuracy of the proposed system ranges between 98% for 1 person to 75% for 5 people with an average position error of 0.32m  and 0.29m  in  the x-y direction  respectively.  In comparison,  the commercially  available  Texas Instrument system has an experimental  accuracy between 94% for 1 person and 43% 5 people  with an average position  error of 0.33m  and 0.3m in  the x-y direction  respectively.
+
+This research was accepted into IEEE ICIEA 2020 conference.
